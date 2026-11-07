@@ -5,9 +5,10 @@ A production-ready digital ledger for shopkeepers. Every entry is written to the
 Cloudflare Worker receives the queued rows, stores them in D1, and texts the customer an SMS
 alert.
 
-- **App:** https://merry8989-uk.github.io/khata-pwa/app/
+- **Web app (PWA):** https://merry8989-uk.github.io/khata-pwa/app/
+- **Android app (signed APK):** https://github.com/merry8989-uk/khata-pwa/releases/latest
 - **Public page (feature reference):** https://merry8989-uk.github.io/khata-pwa/
-- **Version:** 1.0.0
+- **Version:** 1.1.0 · package id `io.github.merry8989uk.khata`
 
 ---
 
@@ -50,6 +51,12 @@ scripts/
 tests/
   unit/              money, ledger, sms, validation, db, sync-core, zip, i18n
   e2e/               headless Chromium smoke test of the real built app
+android/             the Android shell (WebView + in-app APK updates)
+  app/src/main/java/io/github/merry8989uk/khata/
+    MainActivity.java   full-screen WebView, download bridge, external links
+    UpdateChecker.java  GitHub Releases check, download and install in place
+    CrashLog.java       native crash log with share / delete
+  app/src/main/res/     launcher icons, strings, theme
 docs/                the GitHub Pages site: index.html (public page) + app/ (built PWA)
 ```
 
@@ -222,6 +229,48 @@ diagnostics (capped at 2000 entries), and `settings` holds every option.
 - The sync token is stored on the device in IndexedDB and never in the bundle.
 - No analytics, no third-party requests at runtime.
 
+## Android app (signed APK, auto-released)
+
+`android/` is a thin shell around the same PWA: a full-screen WebView, a bridge that saves PDF
+statements, JSON backups and log exports into Downloads (blob downloads never reach a WebView's
+download listener), external links pushed out to the system, a native crash log, and an in-app
+update that downloads the next APK and hands it to the installer. Everything else - the ledger,
+Settings, Diagnostics, About - is the web app, unchanged.
+
+- **Package id:** `io.github.merry8989uk.khata` (permanent; it never changes, which is what lets a
+  new version install over the old one).
+- **Signing:** one release keystore, generated once for this app and reused forever. The keystore
+  and its passwords live in the repository's Actions secrets (`ANDROID_KEYSTORE_BASE64`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) and are decoded into
+  the build only for the duration of a release job. They are never committed, and the release job
+  refuses to build if the secret is missing rather than shipping an unsigned or debug-signed APK.
+- **Automatic release:** pushing a tag like `v1.1.0` builds the web bundle and the signed APK,
+  verifies the APK's signing certificate is the Khata key, and publishes both on the GitHub
+  Release for that tag. The app then offers that release to installed copies by itself.
+
+Build it yourself:
+
+```bash
+# debug build, no signing needed
+npm run android:debug        # -> android/app/build/outputs/apk/debug/app-debug.apk
+
+# release build (needs the keystore)
+cd android
+KEYSTORE_FILE=khata-release.p12 \
+KEYSTORE_PASSWORD='…' KEY_ALIAS=khata-release KEY_PASSWORD='…' \
+gradle :app:assembleRelease -PkhataVersionName=1.1.0 -PkhataVersionCode=10100
+```
+
+Release a new version:
+
+```bash
+npm version patch --no-git-tag-version   # bumps package.json
+git commit -am "chore: release"
+git tag v1.1.1 && git push origin main --tags
+```
+
+The workflow does the rest: lint, unit tests, build, sign, verify, publish.
+
 ## Known limitations
 
 - The Worker maps one bearer token to one shop id. There is no sign-up, password or per-user
@@ -229,6 +278,11 @@ diagnostics (capped at 2000 entries), and `settings` holds every option.
 - Concurrent edits of the same customer on two devices resolve last-write-wins.
 - SMS requires your own gateway account and credit.
 - Clearing browser site data deletes the ledger - use **Settings > Data and backup** first.
+- The Android shell loads the hosted PWA, so the very first launch needs a connection; after that
+  the service worker serves it offline. Web-side changes reach installed APKs without a new
+  release; native changes need one.
+- The APK is distributed through GitHub Releases, not the Play Store, so Android will ask the
+  user to allow installing from this source once.
 
 ## Licence
 

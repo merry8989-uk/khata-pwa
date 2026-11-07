@@ -6,6 +6,7 @@
 import { formatAmount } from './shared/money.js';
 import { formatDate, formatDateTime, statementRows, summarize } from './shared/ledger.js';
 import { t } from './i18n.js';
+import { downloadBlob } from './ui.js';
 
 /**
  * jsPDF's built-in Helvetica is WinAnsi encoded and has no rupee glyph, so the
@@ -137,7 +138,7 @@ export function statementFileName(customer) {
 export function downloadStatement(customer, transactions, options) {
   const doc = buildStatementDoc(customer, transactions, options);
   const name = statementFileName(customer);
-  doc.save(name);
+  downloadBlob(doc.output('blob'), name);
   return name;
 }
 

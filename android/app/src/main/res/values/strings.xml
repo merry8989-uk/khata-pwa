@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Khata</string>
+    <string name="no_app_for_link">No app installed to open that link</string>
+    <string name="download_started">Download started</string>
+    <string name="download_saved">Saved to Downloads: %1$s</string>
+    <string name="download_failed">Could not save the file</string>
+    <string name="download_unsupported">This download is not supported inside the app</string>
+
+    <string name="update_title">Update to Khata %1$s</string>
+    <string name="update_message">A newer version is available. It installs over the current app and your ledger stays untouched.</string>
+    <string name="update_install">Download and install</string>
+    <string name="update_downloading">Downloading the update…</string>
+    <string name="update_failed">The update could not be installed</string>
+    <string name="update_check_failed">Could not check for updates. Check your connection.</string>
+    <string name="update_up_to_date">You are on the latest version (%1$s)</string>
+    <string name="update_permission_title">Allow installing updates</string>
+    <string name="update_permission_message">Android needs your permission to install an update from Khata itself.</string>
+    <string name="update_open_settings">Open settings</string>
+
+    <string name="logs_title">Khata log</string>
+    <string name="logs_message">Khata closed unexpectedly last time. Sharing the log helps fix it. It stays on this device unless you send it.</string>
+    <string name="logs_share">Share log</string>
+    <string name="logs_clear">Delete log</string>
+</resources>

@@ -279,7 +279,33 @@ export function debounce(fn, wait = 180) {
   };
 }
 
+/**
+ * Blob downloads never reach the WebView's DownloadListener, so inside the
+ * Android shell (window.KhataAndroid) the bytes are handed to MediaStore instead.
+ * @returns {boolean} true when the native shell took the file
+ */
+function saveThroughAndroidShell(blob, filename) {
+  const bridge = globalThis.KhataAndroid;
+  if (!bridge || typeof bridge.saveFile !== 'function') return false;
+  blob
+    .arrayBuffer()
+    .then((buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let binary = '';
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+      }
+      bridge.saveFile(filename, blob.type || 'application/octet-stream', btoa(binary));
+    })
+    .catch(() => {
+      /* the shell reports its own failure toast */
+    });
+  return true;
+}
+
 export function downloadBlob(blob, filename) {
+  if (saveThroughAndroidShell(blob, filename)) return;
   const url = URL.createObjectURL(blob);
   const link = el('a', { href: url, download: filename, class: 'hidden' });
   document.body.append(link);

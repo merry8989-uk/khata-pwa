@@ -9,7 +9,7 @@
 
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -286,7 +286,8 @@ test('About carries the contact email, the Instagram call to action and the vers
   assert.equal(instagram.href, 'https://instagram.com/osintgram_io');
   assert.match(instagram.text, /@osintgram_io/);
 
-  assert.match(await text('#about-version'), /Version 1\.0\.0/);
+  const expectedVersion = JSON.parse(readFileSync(join(ROOT, 'docs', 'app', 'version.json'), 'utf8')).version;
+  assert.match(await text('#about-version'), new RegExp(`Version ${expectedVersion.replace(/\./g, '\\.')}`));
   assert.ok(await page.$('#about-check-updates'), 'check-for-updates control must exist');
 });
 

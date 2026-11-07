@@ -1646,6 +1646,12 @@ function compareVersions(a, b) {
 }
 
 async function checkForUpdates({ announce = false } = {}) {
+  // Inside the Android shell the update is an APK, and only the shell can install it.
+  if (globalThis.KhataAndroid && typeof globalThis.KhataAndroid.checkAppUpdate === 'function') {
+    globalThis.KhataAndroid.checkAppUpdate();
+    if (announce) toast(t('settings.checking'));
+    return;
+  }
   state.update.checking = true;
   state.update.message = '';
   if (announce) render();

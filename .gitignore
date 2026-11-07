@@ -6,3 +6,12 @@ docs/version.js
 .dev.vars
 *.log
 .DS_Store
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/khata-release.p12
+android/app/release/
+*.jks
+*.keystore
