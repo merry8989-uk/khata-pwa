@@ -79,6 +79,43 @@ after(async () => {
 
 const text = (selector) => page.$eval(selector, (node) => node.textContent.trim());
 
+/** Clicks through the DOM: deterministic even while a sheet animates or a view re-renders. */
+async function click(selector) {
+  await page.waitForSelector(selector, { timeout: 15000 });
+  await page.evaluate((sel) => {
+    const node = document.querySelector(sel);
+    if (!node) throw new Error(`missing element: ${sel}`);
+    node.scrollIntoView({ block: 'center' });
+    node.click();
+  }, selector);
+}
+
+/** Fills a field the way a user would: value plus input/change events. */
+async function fill(selector, value) {
+  await page.waitForSelector(selector, { timeout: 15000 });
+  await page.evaluate(
+    (sel, val) => {
+      const node = document.querySelector(sel);
+      node.focus();
+      node.value = val;
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      node.dispatchEvent(new Event('change', { bubbles: true }));
+    },
+    selector,
+    value,
+  );
+}
+
+/** Waits until an element's text is exactly what we expect (no substring races). */
+async function waitForText(selector, expected) {
+  await page.waitForFunction(
+    (sel, want) => document.querySelector(sel)?.textContent.trim() === want,
+    { timeout: 15000 },
+    selector,
+    expected,
+  );
+}
+
 test('the shell boots, the service worker registers and sync starts unconfigured', async () => {
   assert.match(await text('#app-header h1'), /Khata/);
   assert.match(await text('#app-nav'), /Home/);
@@ -98,11 +135,10 @@ test('the shell boots, the service worker registers and sync starts unconfigured
 });
 
 test('adding a customer shows them as settled', async () => {
-  await page.click('#dashboard-add-customer');
-  await page.waitForSelector('#customer-name');
-  await page.type('#customer-name', 'Ramesh Kumar');
-  await page.type('#customer-phone', '9876543210');
-  await page.click('#customer-save');
+  await click('#dashboard-add-customer');
+  await fill('#customer-name', 'Ramesh Kumar');
+  await fill('#customer-phone', '9876543210');
+  await click('#customer-save');
   await page.waitForSelector('[data-customer-id]');
 
   const row = await page.$eval('[data-customer-id]', (node) => node.textContent);
@@ -112,18 +148,15 @@ test('adding a customer shows them as settled', async () => {
 });
 
 test('recording "You Gave" updates the balance in red and persists', async () => {
-  await page.click('[data-customer-id]');
+  await click('[data-customer-id]');
   await page.waitForSelector('#ledger-gave');
   assert.equal(await text('#customer-balance'), '\u20b90');
 
-  await page.click('#ledger-gave');
-  await page.waitForSelector('#tx-amount');
-  await page.type('#tx-amount', '500');
-  await page.type('#tx-note', 'Rice and oil');
-  await page.click('#tx-save');
-  await page.waitForFunction(() => document.querySelector('#customer-balance')?.textContent.includes('500'));
-
-  assert.equal(await text('#customer-balance'), '\u20b9500');
+  await click('#ledger-gave');
+  await fill('#tx-amount', '500');
+  await fill('#tx-note', 'Rice and oil');
+  await click('#tx-save');
+  await waitForText('#customer-balance', '\u20b9500');
   const tone = await page.$eval('#customer-balance', (node) => node.className);
   assert.match(tone, /text-due-600/, 'money owed should be red');
 
@@ -134,13 +167,10 @@ test('recording "You Gave" updates the balance in red and persists', async () =>
 });
 
 test('a payment reduces the balance and turns it green when it flips', async () => {
-  await page.click('#ledger-got');
-  await page.waitForSelector('#tx-amount');
-  await page.type('#tx-amount', '800');
-  await page.click('#tx-save');
-  await page.waitForFunction(() => document.querySelector('#customer-balance')?.textContent.includes('300'));
-
-  assert.equal(await text('#customer-balance'), '\u20b9300');
+  await click('#ledger-got');
+  await fill('#tx-amount', '800');
+  await click('#tx-save');
+  await waitForText('#customer-balance', '\u20b9300');
   const tone = await page.$eval('#customer-balance', (node) => node.className);
   assert.match(tone, /text-paid-600/, 'money payable should be green');
 });
@@ -149,13 +179,10 @@ test('the app still works offline and says so', async () => {
   await page.setOfflineMode(true);
   await page.waitForFunction(() => document.body.textContent.includes('Offline'), { timeout: 10000 });
 
-  await page.click('#ledger-gave');
-  await page.waitForSelector('#tx-amount');
-  await page.type('#tx-amount', '300');
-  await page.click('#tx-save');
-  await page.waitForFunction(() => document.querySelector('#customer-balance')?.textContent.includes('0'));
-
-  assert.equal(await text('#customer-balance'), '\u20b90', '500 - 800 + 300 = 0');
+  await click('#ledger-gave');
+  await fill('#tx-amount', '300');
+  await click('#tx-save');
+  await waitForText('#customer-balance', '\u20b90');
 
   // A full navigation while offline must be served by the service worker.
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -259,7 +286,7 @@ test('About carries the contact email, the Instagram call to action and the vers
 });
 
 test('the update check reads version.json and reports the current version', async () => {
-  await page.click('#about-check-updates');
+  await click('#about-check-updates');
   await page.waitForSelector('#about-update-message', { timeout: 10000 });
   const message = await text('#about-update-message');
   assert.match(message, /latest version/);
@@ -288,7 +315,7 @@ test('accessibility: every control has an accessible name and the page has one h
 test('a customer can be deleted and the ledger empties', async () => {
   await page.goto(BASE, { waitUntil: 'networkidle2' });
   await page.waitForSelector('[data-customer-id]');
-  await page.click('[data-customer-id]');
+  await click('[data-customer-id]');
   await page.waitForSelector('#ledger-gave');
 
   await page.evaluate(() => {
