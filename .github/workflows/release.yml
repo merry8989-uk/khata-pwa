@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish a release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Verify before publishing
+        run: |
+          npm run lint
+          npm test
+          npm run build
+
+      - name: Package the installable bundle
+        run: |
+          cd docs/app
+          zip -qr "../../khata-app-${GITHUB_REF_NAME}.zip" .
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Khata ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            khata-app-${{ github.ref_name }}.zip
+          body: |
+            Offline-first Khata ledger PWA, version ${{ github.ref_name }}.
+
+            **Install:** open https://merry8989-uk.github.io/khata-pwa/app/ and use your browser's
+            "Install app" / "Add to Home Screen" action. The attached zip is the same static
+            bundle, for hosting yourself.
+
+            **Cloud sync and SMS are optional.** Deploy `worker/` to your own Cloudflare account
+            and paste the Worker URL plus token into Settings > General. See the README for the
+            exact commands.

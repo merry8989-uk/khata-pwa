@@ -1,0 +1,45 @@
+# Khata API - Cloudflare Worker configuration template.
+# Replace the two placeholder ids, then:
+#   npx wrangler d1 execute khata --config worker/wrangler.toml --remote --file worker/schema.sql
+#   npx wrangler secret put SHOP_TOKEN --config worker/wrangler.toml
+#   npx wrangler deploy --config worker/wrangler.toml
+
+name = "khata-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+workers_dev = true
+
+# --- D1 (SQLite) -------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "khata"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# --- KV: sync tokens (key: token:<token>  value: shop id or {"shop_id":"..."}) -
+[[kv_namespaces]]
+binding = "AUTH"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+[vars]
+# Single-shop fallback used together with the SHOP_TOKEN secret.
+SHOP_ID = "default"
+# "none" | "fast2sms" | "twilio". "none" means no SMS is attempted at all.
+SMS_PROVIDER = "none"
+# Hard cap on messages per shop per day, so a sync loop cannot burn your credit.
+SMS_DAILY_CAP = "200"
+# Comma separated list of allowed web origins, or "*".
+ALLOWED_ORIGINS = "*"
+
+# --- Secrets (never put these in this file) ----------------------------------
+#   wrangler secret put SHOP_TOKEN          # the token the app sends as a bearer
+#   wrangler secret put FAST2SMS_API_KEY    # when SMS_PROVIDER = fast2sms
+#   wrangler secret put TWILIO_ACCOUNT_SID  # when SMS_PROVIDER = twilio
+#   wrangler secret put TWILIO_AUTH_TOKEN
+#   wrangler secret put TWILIO_FROM
+
+[observability]
+enabled = true
+
+# Local development against a local D1:
+#   npx wrangler d1 execute khata --config worker/wrangler.toml --local --file worker/schema.sql
+#   npx wrangler dev --config worker/wrangler.toml --local

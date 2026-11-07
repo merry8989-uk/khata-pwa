@@ -1,0 +1,27 @@
+{
+  "name": "khata-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Khata - offline-first digital ledger PWA for shopkeepers (Udhar/Jama) with Cloudflare Worker SMS sync",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "serve": "node scripts/serve.mjs",
+    "test": "node --test tests/unit",
+    "test:e2e": "node --test tests/e2e",
+    "lint": "node scripts/lint.mjs",
+    "icons": "python3 scripts/icons.py",
+    "worker:dev": "wrangler dev --config worker/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
+    "worker:schema": "wrangler d1 execute khata --config worker/wrangler.toml --remote --file worker/schema.sql"
+  },
+  "dependencies": {
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.9"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.0.1",
+    "puppeteer-core": "24.43.1",
+    "tailwindcss": "3.4.17"
+  }
+}

@@ -1,0 +1,233 @@
+# Khata - offline-first udhar and jama ledger (PWA + Cloudflare Worker)
+
+A production-ready digital ledger for shopkeepers. Every entry is written to the device first
+(IndexedDB), so the app keeps working with the network off. When connectivity returns, a
+Cloudflare Worker receives the queued rows, stores them in D1, and texts the customer an SMS
+alert.
+
+- **App:** https://merry8989-uk.github.io/khata-pwa/app/
+- **Public page (feature reference):** https://merry8989-uk.github.io/khata-pwa/
+- **Version:** 1.0.0
+
+---
+
+## What is in the repository
+
+```
+src/                 the app shell that is copied into the build
+  index.html         single page, CSP-locked, vendored jsPDF
+  manifest.json      PWA manifest (id app.khata.ledger, standalone, shortcuts)
+  sw.js              module service worker: precache, offline navigation, Background Sync
+  css/input.css      Tailwind entry + design tokens (theme, accent, density)
+  js/app.js          routing, views, forms, settings screen, update check
+  js/db.js           IndexedDB layer (customers, transactions, tombstones, logs, settings)
+  js/sync.js         page-side sync orchestration (online events, backoff, timers)
+  js/sync-core.js    the flush itself - shared with the service worker
+  js/pdf.js          PDF statements via jsPDF + AutoTable
+  js/ui.js           DOM helpers, icons, toasts, accessible modal sheets
+  js/i18n.js         English + Hindi dictionaries (same key set)
+  js/logger.js       diagnostics logger (on by default, IndexedDB-backed)
+  js/zip.js          store-only ZIP writer for log export
+  js/settings.js     settings defaults, persistence, theme application
+  js/version.js      APP_VERSION (rewritten by the build)
+  icons/             generated PWA icons
+shared/              pure logic used by app, worker and tests
+  money.js           integer-paise parsing and Indian formatting
+  ledger.js          balances, running balance, sorting, statement rows
+  sms.js             the SMS template and reminder text
+  validation.js      one set of validation rules for client and server
+worker/
+  src/index.js       Cloudflare Worker API (sync, transaction, customers, health, sms retry)
+  src/sms.js         Fast2SMS and Twilio adapters, timeout-bounded
+  schema.sql         D1 schema
+  wrangler.toml      configuration template (two ids to fill in)
+scripts/
+  build.mjs          Tailwind -> docs/app, copy shell, stamp version, write version.json
+  serve.mjs          static server for local use and the e2e suite
+  lint.mjs           syntax, i18n parity, content rules, precache verification
+  screenshots.mjs    captures the real app for the public page
+  icons.py           regenerates the icon set
+tests/
+  unit/              money, ledger, sms, validation, db, sync-core, zip, i18n
+  e2e/               headless Chromium smoke test of the real built app
+docs/                the GitHub Pages site: index.html (public page) + app/ (built PWA)
+```
+
+## Requirements
+
+- Node.js 20 or newer
+- A Chromium/Chrome binary for the e2e test (the sandbox used `/usr/local/bin/chromium`;
+  set `CHROME_PATH` if yours is elsewhere)
+- Optional, for cloud sync: a Cloudflare account with `wrangler` available through `npx`
+- Optional, for SMS: a Fast2SMS or Twilio account
+
+## Run it locally
+
+```bash
+npm install
+npm run build          # compiles Tailwind, assembles docs/app, writes version.json
+npm run serve          # http://localhost:4173
+```
+
+`npm run serve` serves the built app from `docs/app`. Service workers need `localhost` or
+HTTPS, which is why the built output is served rather than opening the file directly.
+
+## Test it
+
+```bash
+npm run lint           # node --check on every file, i18n parity, content rules, precache list
+npm test               # 55 unit tests (node:test)
+npm run test:e2e       # 12 browser tests against the built app in headless Chromium
+```
+
+The e2e suite adds a customer, records udhar and jama, reloads to prove IndexedDB persistence,
+switches the browser offline and keeps writing, checks the PDF is a real `%PDF-` file, exports
+a valid zip of logs, flips theme and language, and asserts the About block carries the contact
+email, the Instagram call to action and the version.
+
+## Deploy the frontend to GitHub Pages
+
+The workflow in `.github/workflows/pages.yml` builds `docs/` and publishes it on every push to
+`main`. Locally:
+
+```bash
+git init
+git add .
+git commit -m "feat: Khata offline-first ledger"
+git branch -M main
+git remote add origin https://github.com/merry8989-uk/khata-pwa.git
+git push -u origin main
+```
+
+Then in the repository: **Settings > Pages > Build and deployment > Source: GitHub Actions**.
+The first workflow run publishes:
+
+- `https://merry8989-uk.github.io/khata-pwa/` - the public page documenting every feature
+- `https://merry8989-uk.github.io/khata-pwa/app/` - the installable app
+
+Everything is served from a relative path, so it works from a project subpath without changes.
+
+## Deploy the Worker (cloud sync + SMS)
+
+```bash
+# 1. Create the D1 database and the KV namespace for tokens
+npx wrangler d1 create khata
+npx wrangler kv namespace create AUTH
+
+# 2. Paste the returned database_id and KV id into worker/wrangler.toml
+
+# 3. Create the tables
+npx wrangler d1 execute khata --config worker/wrangler.toml --remote --file worker/schema.sql
+
+# 4. Set the sync token (any long random string) and deploy
+npx wrangler secret put SHOP_TOKEN --config worker/wrangler.toml
+npx wrangler deploy --config worker/wrangler.toml
+```
+
+Wrangler prints the Worker URL, e.g. `https://khata-api.<subdomain>.workers.dev`.
+Open the app, go to **Settings > General**, and paste:
+
+- **Sync server URL** - the Worker URL (no trailing slash needed)
+- **Sync token** - the same value you gave `SHOP_TOKEN`
+
+The status badge moves from "Local only - cloud sync off" to "Online", and queued rows flush
+immediately.
+
+Verify the server without the app:
+
+```bash
+curl https://khata-api.<subdomain>.workers.dev/api/health
+# {"ok":true,"version":"1.0.0","checks":{"db":"ok","kv":"ok","sms":{"provider":"none","enabled":false}}}
+
+curl -X POST https://khata-api.<subdomain>.workers.dev/api/sync \
+  -H "authorization: Bearer $SHOP_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{"customers":[{"id":"11111111-1111-4111-8111-111111111111","name":"Ramesh","phone_number":"+919876543210","created_at":"2026-11-01T06:00:00.000Z","updated_at":"2026-11-01T06:00:00.000Z"}],"transactions":[]}'
+```
+
+### Turn on SMS
+
+Set the provider in `worker/wrangler.toml` and add its secrets:
+
+```toml
+[vars]
+SMS_PROVIDER = "fast2sms"   # or "twilio" or "none"
+SMS_DAILY_CAP = "200"
+ALLOWED_ORIGINS = "https://merry8989-uk.github.io"
+```
+
+```bash
+# Fast2SMS
+npx wrangler secret put FAST2SMS_API_KEY --config worker/wrangler.toml
+
+# Twilio
+npx wrangler secret put TWILIO_ACCOUNT_SID --config worker/wrangler.toml
+npx wrangler secret put TWILIO_AUTH_TOKEN  --config worker/wrangler.toml
+npx wrangler secret put TWILIO_FROM        --config worker/wrangler.toml
+```
+
+The message body is exactly:
+
+```
+Dear Ramesh Kumar, Rs.5,000 Gave on 07 Nov 2026. Net Balance: Rs.3,750.- KhataApp
+```
+
+Every attempt is recorded in `sms_log` with status `queued` / `sent` / `failed` /
+`skipped_cap`, a `UNIQUE(shop_id, transaction_id)` key that makes a send at-most-once, and a
+daily cap so a sync loop cannot drain your credit. Retry failures with:
+
+```bash
+curl -X POST https://khata-api.<subdomain>.workers.dev/api/sms/retry \
+  -H "authorization: Bearer $SHOP_TOKEN"
+```
+
+With `SMS_PROVIDER = "none"` the API responds `sms: {enabled: false, note: "sms_disabled"}`
+and sends nothing. It never reports a message as sent when it was not.
+
+## How the offline queue works
+
+1. A save writes the row to IndexedDB with `synced: false`.
+2. `sync-core.js` collects every unsynced row (plus deletion tombstones) into one POST.
+3. The Worker validates row by row and upserts with `ON CONFLICT DO NOTHING` on the
+   client-generated UUID, so a replayed batch cannot duplicate anything.
+4. The response lists accepted ids; the client marks exactly those as synced.
+5. A row the server rejects is also marked synced (and logged) so one bad row cannot block the
+   queue forever - the data stays on the device.
+
+Triggers: the `online` event, Background Sync (`khata-sync`, runs even with no tab open), a
+configurable interval, returning to the tab, and the "Sync now" button.
+
+## Data model
+
+| Table | Key | Notes |
+| --- | --- | --- |
+| `customers` | `(shop_id, id)` | `id` is a client UUID, `phone_number` is E.164 |
+| `transactions` | `(shop_id, id)` | `type` is `GIVEN` or `GOT`, `amount_paise` is an integer > 0, `deleted` is soft |
+| `sms_log` | `(shop_id, transaction_id)` unique | status, provider id, error, timestamps |
+| `shops` | `id` | created on first sync |
+
+Locally, `deletions` holds tombstones for rows the server may already know, `logs` holds
+diagnostics (capped at 2000 entries), and `settings` holds every option.
+
+## Accessibility and security notes
+
+- Semantic HTML, one `h1` per view, labels tied to inputs, `role="switch"` toggles with
+  `aria-checked`, a focus trap and Escape handling in every sheet, an `aria-live` toast region,
+  visible focus rings, `prefers-reduced-motion` respected, and WCAG AA contrast in both themes.
+- A strict Content-Security-Policy (`script-src 'self'`, `object-src 'none'`,
+  `base-uri 'none'`) - no inline scripts, no CDN at runtime, no `eval`.
+- User text is written through `textContent`; `innerHTML` is only used for the static icon set.
+- The sync token is stored on the device in IndexedDB and never in the bundle.
+- No analytics, no third-party requests at runtime.
+
+## Known limitations
+
+- The Worker maps one bearer token to one shop id. There is no sign-up, password or per-user
+  role model yet; that is the next step if several people need separate logins.
+- Concurrent edits of the same customer on two devices resolve last-write-wins.
+- SMS requires your own gateway account and credit.
+- Clearing browser site data deletes the ledger - use **Settings > Data and backup** first.
+
+## Licence
+
+MIT. See `LICENSE`.

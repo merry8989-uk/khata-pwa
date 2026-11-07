@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-text-size="md" data-density="comfortable" data-immersive="on">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Khata - Udhar and Jama ledger</title>
+    <meta
+      name="description"
+      content="Khata is an offline-first ledger for shopkeepers: record udhar and jama, keep a running balance per customer, and send SMS alerts when you are back online."
+    />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https:; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
+    <meta name="theme-color" content="#4f46e5" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Khata" />
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/icon-180.png" />
+    <link rel="stylesheet" href="./css/app.css" />
+    <script src="./js/theme-boot.js"></script>
+  </head>
+  <body class="app-bg">
+    <a
+      class="sr-only-focusable absolute left-2 top-2 z-[70] rounded-lg bg-ink-900 px-3 py-2 text-sm font-semibold text-white"
+      href="#main"
+      >Skip to content</a
+    >
+
+    <div id="app" class="mx-auto flex min-h-dvh w-full max-w-app flex-col">
+      <header
+        id="app-header"
+        class="sticky top-0 z-30 border-b bordered surface px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] no-print"
+      ></header>
+
+      <main id="main" tabindex="-1" class="flex-1 px-4 pb-28 pt-4 outline-none"></main>
+
+      <nav
+        id="app-nav"
+        aria-label="Main"
+        class="fixed inset-x-0 bottom-0 z-30 mx-auto flex w-full max-w-app items-stretch border-t bordered surface pb-[env(safe-area-inset-bottom)] no-print"
+      ></nav>
+    </div>
+
+    <div id="overlay-root"></div>
+
+    <!-- Vendored locally so statements work with no network. -->
+    <script src="./vendor/jspdf.umd.min.js" defer></script>
+    <script src="./vendor/jspdf.plugin.autotable.min.js" defer></script>
+    <script type="module" src="./js/app.js"></script>
+  </body>
+</html>

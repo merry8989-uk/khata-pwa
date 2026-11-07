@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #0f172a;
+  --muted: #5b6b82;
+  --line: #e2e8f0;
+  --bg: #f8fafc;
+  --brand: #4f46e5;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+  line-height: 1.6;
+}
+
+@layer components {
+  .wrap {
+    @apply mx-auto w-full max-w-5xl px-5;
+  }
+  .panel {
+    @apply rounded-2xl border bg-white p-6;
+    border-color: var(--line);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 12px 32px -24px rgba(15, 23, 42, 0.3);
+  }
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold;
+    border-color: var(--line);
+    background: #fff;
+    color: var(--muted);
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-sm font-bold transition-colors;
+  }
+  .btn-primary {
+    @apply btn text-white;
+    background: var(--brand);
+  }
+  .btn-primary:hover {
+    background: #4338ca;
+  }
+  .btn-ghost {
+    @apply btn border bg-white;
+    border-color: var(--line);
+    color: var(--ink);
+  }
+  .btn-ghost:hover {
+    background: #f1f5f9;
+  }
+  .h2 {
+    @apply text-2xl font-extrabold tracking-tight;
+  }
+  .prose-list {
+    @apply space-y-2 text-[0.95rem];
+    color: var(--muted);
+  }
+  .prose-list strong {
+    color: var(--ink);
+  }
+  .shot {
+    @apply w-full rounded-2xl border bg-white;
+    border-color: var(--line);
+    box-shadow: 0 18px 40px -28px rgba(15, 23, 42, 0.55);
+  }
+  .code {
+    @apply overflow-x-auto rounded-xl px-4 py-3 text-[0.8rem] leading-relaxed;
+    background: #0f172a;
+    color: #e2e8f0;
+  }
+  .tag {
+    @apply rounded-md bg-indigo-50 px-1.5 py-0.5 font-mono text-[0.8em] text-indigo-700;
+  }
+}
+
+a {
+  color: var(--brand);
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

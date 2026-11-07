@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Khata - offline-first udhar and jama ledger for shopkeepers</title>
+    <meta
+      name="description"
+      content="Khata is a free, offline-first digital ledger PWA for shopkeepers. Record udhar and jama, keep a running balance per customer, print PDF statements, and send SMS alerts through your own Cloudflare Worker."
+    />
+    <link rel="icon" href="./app/icons/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./css/site.css" />
+  </head>
+  <body>
+    <header class="border-b border-[color:var(--line)] bg-white">
+      <div class="wrap flex items-center justify-between gap-4 py-4">
+        <div class="flex items-center gap-3">
+          <img src="./app/icons/icon-192.png" alt="" width="40" height="40" class="h-10 w-10 rounded-xl" />
+          <div>
+            <p class="text-lg font-extrabold leading-tight">Khata</p>
+            <p class="text-xs text-[color:var(--muted)]">Udhar and jama, on your phone</p>
+          </div>
+        </div>
+        <nav class="hidden items-center gap-5 text-sm font-semibold text-[color:var(--muted)] sm:flex">
+          <a href="#features" class="hover:text-[color:var(--ink)]">Features</a>
+          <a href="#install" class="hover:text-[color:var(--ink)]">Install</a>
+          <a href="#server" class="hover:text-[color:var(--ink)]">SMS server</a>
+          <a href="#limits" class="hover:text-[color:var(--ink)]">Limits</a>
+        </nav>
+        <a class="btn-primary" href="./app/">Open app</a>
+      </div>
+    </header>
+
+    <main>
+      <!-- Hero -->
+      <section class="wrap grid gap-10 py-12 md:grid-cols-2 md:items-center md:py-16">
+        <div>
+          <p class="pill mb-4">Version <span id="version">1.0.0</span> · installable PWA · works offline</p>
+          <h1 class="text-4xl font-extrabold leading-tight tracking-tight md:text-5xl">
+            The shop ledger that keeps working when the network does not.
+          </h1>
+          <p class="mt-4 text-lg text-[color:var(--muted)]">
+            Khata is a digital udhar (credit) and jama (payment) register for kirana shops, tailors, mechanics and
+            anyone who sells on credit. Every entry is written to the phone first, so the app never waits for a
+            connection. When you are back online, a Cloudflare Worker syncs the queue and texts the customer an SMS
+            alert.
+          </p>
+          <div class="mt-6 flex flex-wrap gap-3">
+            <a class="btn-primary" href="./app/">Open the ledger</a>
+            <a class="btn-ghost" href="https://github.com/merry8989-uk/khata-pwa">Source on GitHub</a>
+          </div>
+          <p class="mt-4 text-sm text-[color:var(--muted)]">
+            No account, no sign-up, no server needed to start. Your ledger lives in the browser's IndexedDB on your
+            own device.
+          </p>
+        </div>
+        <div class="mx-auto w-full max-w-[320px]">
+          <img
+            class="shot"
+            src="./assets/screens/dashboard.png"
+            alt="Khata dashboard listing four customers with red 'You will get' balances and green 'You will give' balances"
+            width="430"
+            height="932"
+          />
+        </div>
+      </section>
+
+      <!-- Feature list -->
+      <section id="features" class="border-t border-[color:var(--line)] bg-white py-14">
+        <div class="wrap">
+          <h2 class="h2">Everything the app does</h2>
+          <p class="mt-2 max-w-3xl text-[color:var(--muted)]">
+            This is the complete function list, not a teaser. Each item below is wired to working code in the app.
+          </p>
+
+          <div class="mt-8 grid gap-5 md:grid-cols-2">
+            <div class="panel">
+              <h3 class="text-lg font-bold">Dashboard</h3>
+              <ul class="prose-list mt-3">
+                <li>
+                  <strong>Shop totals.</strong> Two figures at the top: total you will get (red) and total you will
+                  give (green), summed across every live entry.
+                </li>
+                <li>
+                  <strong>Customer list.</strong> Every customer with their initials avatar, phone number, net
+                  balance and a plain-language label: "You will get", "You will give" or "Settled".
+                </li>
+                <li>
+                  <strong>Instant search.</strong> Filters by name or phone digits as you type, with a live result
+                  count and a "no match" state that names what you typed.
+                </li>
+                <li>
+                  <strong>Add customer.</strong> The floating button and the centre button in the bottom bar both
+                  open the same form.
+                </li>
+                <li>
+                  <strong>Counters.</strong> Customer count and total entries for the whole shop.
+                </li>
+              </ul>
+            </div>
+
+            <div class="panel">
+              <h3 class="text-lg font-bold">Customer ledger</h3>
+              <ul class="prose-list mt-3">
+                <li>
+                  <strong>Net balance card.</strong> The current position in one number, coloured red for money owed
+                  to you and green for money you owe, plus total gave and total got.
+                </li>
+                <li>
+                  <strong>"You Gave (-)" and "You Got (+)".</strong> Two large buttons open the entry form with the
+                  direction already selected; you can flip it inside the form.
+                </li>
+                <li>
+                  <strong>Timeline.</strong> Newest first, each row showing note, date and time, signed amount and the
+                  running balance after that entry. Tap any row to edit or delete it.
+                </li>
+                <li>
+                  <strong>Call.</strong> Opens the dialler with the customer's number.
+                </li>
+                <li>
+                  <strong>WhatsApp reminder.</strong> Opens WhatsApp with a pre-filled balance reminder. The wording
+                  is editable in Settings and supports <span class="tag">{name}</span>
+                  <span class="tag">{shop}</span> <span class="tag">{balance}</span>.
+                </li>
+                <li>
+                  <strong>Statement.</strong> Generates a real PDF (jsPDF + AutoTable, bundled locally) with shop
+                  header, customer details, the full table and running balance, totals and page numbers.
+                </li>
+                <li>
+                  <strong>Edit and delete.</strong> Edit the name or phone; deleting a customer removes their entries
+                  too, after a confirmation.
+                </li>
+              </ul>
+            </div>
+
+            <div class="panel">
+              <h3 class="text-lg font-bold">Entry form</h3>
+              <ul class="prose-list mt-3">
+                <li>
+                  <strong>Amount.</strong> Accepts <span class="tag">1,250.50</span> or
+                  <span class="tag">₹1,250</span>; stored as integer paise so totals never drift by a rounding error.
+                </li>
+                <li><strong>Note.</strong> Optional description, up to 200 characters.</li>
+                <li>
+                  <strong>Date.</strong> Defaults to today, backdating allowed, future dates refused.
+                </li>
+                <li>
+                  <strong>Validation.</strong> Inline, translated messages under the field that failed, with the
+                  invalid field outlined.
+                </li>
+                <li>
+                  <strong>Delete.</strong> Editing an existing entry offers a delete that queues a tombstone for the
+                  server.
+                </li>
+              </ul>
+            </div>
+
+            <div class="panel">
+              <h3 class="text-lg font-bold">Offline engine and sync</h3>
+              <ul class="prose-list mt-3">
+                <li>
+                  <strong>IndexedDB first.</strong> Customers and entries are written to the device before anything
+                  else; there is no server in the critical path.
+                </li>
+                <li>
+                  <strong>Status badge.</strong> Online, "Offline - changes saved locally", "Syncing...", "All changes
+                  synced", "Sync failed - will retry", or "Local only - cloud sync off", with the pending row count.
+                </li>
+                <li>
+                  <strong>Three flush triggers.</strong> The <span class="tag">online</span> event, the Background Sync
+                  API (which the service worker can run with no tab open), and a configurable interval (30s to 15m).
+                </li>
+                <li>
+                  <strong>Bounded retries.</strong> Exponential backoff with jitter, capped at five attempts; a
+                  rejected token stops retrying instead of hammering the server.
+                </li>
+                <li>
+                  <strong>Idempotent by design.</strong> Every row carries a client-generated UUID, so a replayed batch
+                  cannot duplicate an entry.
+                </li>
+                <li>
+                  <strong>Service worker.</strong> Pre-caches the whole shell, serves navigations from cache and
+                  refreshes in the background, and never caches API calls.
+                </li>
+              </ul>
+            </div>
+
+            <div class="panel">
+              <h3 class="text-lg font-bold">Settings</h3>
+              <ul class="prose-list mt-3">
+                <li>
+                  <strong>Appearance.</strong> Theme (system / light / dark), six accent colours, text size (small /
+                  default / large), layout density (comfortable / compact) and a full-screen toggle. All persist and
+                  apply immediately.
+                </li>
+                <li>
+                  <strong>General.</strong> Language (English / हिन्दी), shop name and phone (used on statements and
+                  reminders), SMS alerts on or off, automatic sync, sync interval, sync server URL and token, "ask
+                  before deleting", and the WhatsApp reminder template.
+                </li>
+                <li>
+                  <strong>Data and backup.</strong> Download a JSON backup of every customer and entry; restore one by
+                  merging it back; delete all ledger data while keeping settings. Live row counts are shown.
+                </li>
+                <li>
+                  <strong>Diagnostics.</strong> Log collection is on by default. Share logs through the system share
+                  sheet, or export as <span class="tag">.txt</span> <span class="tag">.json</span>
+                  <span class="tag">.md</span> <span class="tag">.zip</span>, and clear them. The zip is built in the
+                  app with no library.
+                </li>
+                <li><strong>Reset to defaults.</strong> Restores every setting, keeps the ledger.</li>
+                <li>
+                  <strong>About.</strong> Developer profile, contact email, Instagram follow button, version and
+                  "Check for updates".
+                </li>
+              </ul>
+            </div>
+
+            <div class="panel">
+              <h3 class="text-lg font-bold">Server side (Cloudflare Worker)</h3>
+              <ul class="prose-list mt-3">
+                <li>
+                  <strong><span class="tag">POST /api/sync</span></strong> - batch upsert of customers, transactions and
+                  deletions, validated row by row; returns which ids were accepted and why any were rejected.
+                </li>
+                <li>
+                  <strong><span class="tag">POST /api/transaction</span></strong> - single live entry through the same
+                  path.
+                </li>
+                <li>
+                  <strong><span class="tag">GET /api/customers</span></strong> - the server's own ledger, for
+                  verification.
+                </li>
+                <li>
+                  <strong><span class="tag">GET /api/health</span></strong> - reports real D1 and KV state, not just
+                  "ok".
+                </li>
+                <li>
+                  <strong><span class="tag">POST /api/sms/retry</span></strong> - re-sends failed SMS rows.
+                </li>
+                <li>
+                  <strong>Automated SMS.</strong> "Dear [Name], Rs.[Amount] Gave on [Date]. Net Balance:
+                  Rs.[Balance].- KhataApp", sent through Fast2SMS or Twilio, at most once per entry, with a daily cap.
+                </li>
+                <li>
+                  <strong>Bearer-token auth</strong> against Cloudflare KV (token → shop id), soft deletes, and
+                  structured JSON logs with a request id.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="mt-10 grid gap-6 md:grid-cols-3">
+            <figure>
+              <img
+                class="shot"
+                src="./assets/screens/ledger.png"
+                alt="Customer ledger showing a settled balance, red You Gave and green You Got buttons, and the entry timeline with running balances"
+                width="430"
+                height="932"
+                loading="lazy"
+              />
+              <figcaption class="mt-2 text-center text-xs text-[color:var(--muted)]">
+                Ledger with running balance and one-tap call, WhatsApp, statement
+              </figcaption>
+            </figure>
+            <figure>
+              <img
+                class="shot"
+                src="./assets/screens/entry-sheet.png"
+                alt="Entry form with direction toggle, amount, note and date fields"
+                width="430"
+                height="932"
+                loading="lazy"
+              />
+              <figcaption class="mt-2 text-center text-xs text-[color:var(--muted)]">
+                Entry form: direction, amount, note, date
+              </figcaption>
+            </figure>
+            <figure>
+              <img
+                class="shot"
+                src="./assets/screens/about-dark.png"
+                alt="Settings in dark mode showing diagnostics, reset and the About section with email, Instagram and version"
+                width="430"
+                height="932"
+                loading="lazy"
+              />
+              <figcaption class="mt-2 text-center text-xs text-[color:var(--muted)]">
+                Dark theme, diagnostics and About
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- Install -->
+      <section id="install" class="py-14">
+        <div class="wrap grid gap-8 md:grid-cols-2">
+          <div>
+            <h2 class="h2">Install it like an app</h2>
+            <ul class="prose-list mt-4">
+              <li>
+                <strong>Android / Chrome.</strong> Open <a href="./app/">the app</a>, tap the ⋮ menu and choose
+                "Install app" (or "Add to Home screen"). It opens full screen with its own icon.
+              </li>
+              <li>
+                <strong>iPhone / Safari.</strong> Open the app, tap Share, then "Add to Home Screen".
+              </li>
+              <li>
+                <strong>Desktop.</strong> Chrome and Edge show an install icon in the address bar.
+              </li>
+              <li>
+                <strong>Nothing to download.</strong> The installable package is the same static site; the service
+                worker stores it on the device on first visit.
+              </li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3 class="text-lg font-bold">Try it in 30 seconds</h3>
+            <ol class="prose-list mt-3 list-decimal pl-5">
+              <li>Open the app and add a customer with a name and phone number.</li>
+              <li>Tap "You Gave (-)" and enter 500.</li>
+              <li>Turn on aeroplane mode and add another entry: it still saves.</li>
+              <li>Come back online and watch the badge go from "Offline" to "Synced".</li>
+            </ol>
+            <p class="mt-4 text-sm text-[color:var(--muted)]">
+              Without a sync server the badge says "Local only - cloud sync off". Everything still works; nothing
+              leaves the device.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Server -->
+      <section id="server" class="border-t border-[color:var(--line)] bg-white py-14">
+        <div class="wrap">
+          <h2 class="h2">Turn on cloud sync and SMS</h2>
+          <p class="mt-2 max-w-3xl text-[color:var(--muted)]">
+            The Worker is included in the repository. You deploy it to your own Cloudflare account, so the SMS credit
+            and the data are yours.
+          </p>
+          <pre class="code mt-6"><code># 1. create the database and the token store
+npx wrangler d1 create khata
+npx wrangler kv namespace create AUTH
+# put the returned ids into worker/wrangler.toml, then:
+npx wrangler d1 execute khata --config worker/wrangler.toml --remote --file worker/schema.sql
+npx wrangler secret put SHOP_TOKEN --config worker/wrangler.toml
+npx wrangler deploy --config worker/wrangler.toml
+
+# 2. in the app: Settings > General
+#    Sync server URL = https://khata-api.&lt;your-subdomain&gt;.workers.dev
+#    Sync token      = the SHOP_TOKEN you just set</code></pre>
+          <p class="mt-4 text-sm text-[color:var(--muted)]">
+            For SMS set <span class="tag">SMS_PROVIDER</span> to <span class="tag">fast2sms</span> or
+            <span class="tag">twilio</span> in <span class="tag">worker/wrangler.toml</span> and add the matching
+            secrets. With <span class="tag">SMS_PROVIDER = "none"</span> no message is attempted and the API says so
+            instead of pretending.
+          </p>
+        </div>
+      </section>
+
+      <!-- Limits -->
+      <section id="limits" class="py-14">
+        <div class="wrap">
+          <h2 class="h2">What it deliberately does not do</h2>
+          <p class="mt-2 max-w-3xl text-[color:var(--muted)]">
+            Stated plainly so nobody is surprised later. These are known boundaries, not bugs being hidden.
+          </p>
+          <ul class="prose-list mt-4 max-w-3xl list-disc pl-5">
+            <li>
+              <strong>One shared token, not multi-tenant accounts.</strong> The Worker maps a bearer token to a shop
+              id; it does not have sign-up, passwords or per-user roles. That is the next step if several people need
+              separate logins.
+            </li>
+            <li>
+              <strong>No multi-device merge.</strong> Entries are append-only and idempotent, but if the same customer
+              is edited on two phones at once the later update wins. There is no conflict UI.
+            </li>
+            <li>
+              <strong>SMS needs your own gateway.</strong> Nothing is sent until you configure Fast2SMS or Twilio and
+              pay for that account. Delivery is logged per entry in <span class="tag">sms_log</span>, including
+              failures.
+            </li>
+            <li>
+              <strong>No inventory, GST invoicing or billing.</strong> Khata is a credit ledger, not accounting
+              software.
+            </li>
+            <li>
+              <strong>Data lives in the browser profile.</strong> Clearing site data deletes the ledger, so use the
+              backup button. Installing the app protects it better than a normal tab, but a backup is the real
+              safety net.
+            </li>
+          </ul>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-[color:var(--line)] bg-white py-10">
+      <div class="wrap">
+        <div class="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+          <div class="max-w-md">
+            <div class="flex items-center gap-3">
+              <img src="./app/icons/icon-192.png" alt="" width="36" height="36" class="h-9 w-9 rounded-lg" />
+              <p class="font-extrabold">Khata</p>
+            </div>
+            <p class="mt-3 text-sm text-[color:var(--muted)]">
+              Built by <strong>AMIT GUPTA</strong>. Suggestions, feedback and feature requests are welcome - they
+              shape what gets built next.
+            </p>
+          </div>
+          <div class="text-sm">
+            <p class="font-bold">Get in touch</p>
+            <ul class="mt-2 space-y-2">
+              <li>
+                Email:
+                <a href="mailto:br19shc39@gmail.com?subject=Khata%20feedback">br19shc39@gmail.com</a>
+              </li>
+              <li>
+                Instagram:
+                <a href="https://instagram.com/osintgram_io" target="_blank" rel="noopener">@osintgram_io</a>
+              </li>
+              <li><a href="https://github.com/merry8989-uk/khata-pwa">Source code</a></li>
+            </ul>
+            <a class="btn-primary mt-4" href="https://instagram.com/osintgram_io" target="_blank" rel="noopener">
+              Follow @osintgram_io on Instagram
+            </a>
+          </div>
+        </div>
+        <p class="mt-8 border-t border-[color:var(--line)] pt-4 text-xs text-[color:var(--muted)]">
+          Khata <span id="version-footer">1.0.0</span> · open source under the MIT licence · no analytics, no
+          trackers, no third-party scripts at runtime
+        </p>
+      </div>
+    </footer>
+
+    <script src="./version.js"></script>
+  </body>
+</html>

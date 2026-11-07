@@ -1,0 +1,8 @@
+node_modules/
+docs/app/
+docs/css/
+docs/version.js
+.wrangler/
+.dev.vars
+*.log
+.DS_Store

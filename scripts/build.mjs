@@ -1,0 +1,96 @@
+/**
+ * Build: Tailwind CSS -> docs/app/css/app.css, then copy the app shell into
+ * docs/app/ (the folder GitHub Pages serves), inject the version, and emit
+ * version.json for the in-app update check.
+ *
+ *   node scripts/build.mjs
+ */
+
+import { execFileSync } from 'node:child_process';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const OUT = join(ROOT, 'docs', 'app');
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+const VERSION = pkg.version;
+
+function step(message) {
+  process.stdout.write(`• ${message}\n`);
+}
+
+function copy(from, to) {
+  mkdirSync(dirname(to), { recursive: true });
+  cpSync(join(ROOT, from), to, { recursive: true });
+}
+
+step(`cleaning ${OUT}`);
+rmSync(OUT, { recursive: true, force: true });
+mkdirSync(OUT, { recursive: true });
+
+step('compiling Tailwind for the app');
+execFileSync(
+  join(ROOT, 'node_modules', '.bin', 'tailwindcss'),
+  ['-c', 'tailwind.config.js', '-i', 'src/css/input.css', '-o', 'docs/app/css/app.css', '--minify'],
+  { cwd: ROOT, stdio: 'inherit' },
+);
+
+step('compiling Tailwind for the landing page');
+if (existsSync(join(ROOT, 'src/css/site.css'))) {
+  execFileSync(
+    join(ROOT, 'node_modules', '.bin', 'tailwindcss'),
+    ['-c', 'tailwind.config.js', '-i', 'src/css/site.css', '-o', 'docs/css/site.css', '--minify'],
+    { cwd: ROOT, stdio: 'inherit' },
+  );
+}
+
+step('copying app shell');
+copy('src/index.html', join(OUT, 'index.html'));
+copy('src/manifest.json', join(OUT, 'manifest.json'));
+copy('src/icons', join(OUT, 'icons'));
+copy('src/js', join(OUT, 'js'));
+
+step('copying shared modules into the shell');
+for (const file of ['money.js', 'ledger.js', 'sms.js', 'validation.js']) {
+  copy(join('shared', file), join(OUT, 'js', 'shared', file));
+}
+
+step('vendoring jsPDF + AutoTable');
+copy('node_modules/jspdf/dist/jspdf.umd.min.js', join(OUT, 'vendor', 'jspdf.umd.min.js'));
+copy(
+  'node_modules/jspdf-autotable/dist/jspdf.plugin.autotable.min.js',
+  join(OUT, 'vendor', 'jspdf.plugin.autotable.min.js'),
+);
+
+step(`stamping version ${VERSION}`);
+const sw = readFileSync(join(ROOT, 'src', 'sw.js'), 'utf8').replaceAll('__APP_VERSION__', VERSION);
+writeFileSync(join(OUT, 'sw.js'), sw);
+writeFileSync(join(OUT, 'js', 'version.js'), `export const APP_VERSION = '${VERSION}';\n`);
+writeFileSync(
+  join(OUT, 'version.json'),
+  `${JSON.stringify({ name: 'Khata', version: VERSION, built_at: new Date().toISOString() }, null, 2)}\n`,
+);
+copy('src/js/theme-boot.js', join(OUT, 'js', 'theme-boot.js'));
+
+step('writing landing-page version script');
+writeFileSync(
+  join(ROOT, 'docs', 'version.js'),
+  `fetch('./app/version.json', { cache: 'no-store' })
+  .then((response) => response.json())
+  .then((data) => {
+    for (const id of ['version', 'version-footer']) {
+      const node = document.getElementById(id);
+      if (node) node.textContent = data.version;
+    }
+  })
+  .catch(() => {});
+`,
+);
+
+step('writing .nojekyll');
+writeFileSync(join(ROOT, 'docs', '.nojekyll'), '');
+
+const files = execFileSync('bash', ['-c', `find ${OUT} -type f | wc -l`], { encoding: 'utf8' }).trim();
+const size = execFileSync('bash', ['-c', `du -sh ${OUT} | cut -f1`], { encoding: 'utf8' }).trim();
+step(`done: ${files} files, ${size}`);
