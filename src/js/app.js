@@ -1855,16 +1855,6 @@ async function boot() {
 
   await registerServiceWorker();
 
-  window.addEventListener('hashchange', onRouteChange);
-  window.addEventListener('online', () => {
-    state.sync.status = STATUS.ONLINE;
-    renderHeader();
-  });
-  window.addEventListener('offline', () => {
-    state.sync.status = STATUS.OFFLINE;
-    renderHeader();
-  });
-
   checkForUpdates({ announce: false });
 
   if (state.route.openNewCustomer) {
@@ -1894,6 +1884,18 @@ async function boot() {
     },
   };
 }
+
+// Attached before boot() awaits anything: navigation must work from the first
+// painted frame, not only after settings, IndexedDB and the sync engine are ready.
+window.addEventListener('hashchange', onRouteChange);
+window.addEventListener('online', () => {
+  state.sync.status = STATUS.ONLINE;
+  renderHeader();
+});
+window.addEventListener('offline', () => {
+  state.sync.status = STATUS.OFFLINE;
+  renderHeader();
+});
 
 boot().catch((error) => {
   logger.error('app', 'Unhandled boot error', { message: error?.message });

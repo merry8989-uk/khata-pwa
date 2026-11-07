@@ -84,10 +84,11 @@ HTTPS, which is why the built output is served rather than opening the file dire
 ```bash
 npm run lint           # node --check on every file, i18n parity, content rules, precache list
 npm test               # 55 unit tests (node:test)
-npm run test:e2e       # 12 browser tests against the built app in headless Chromium
+npm run test:e2e       # 13 browser tests against the built app in headless Chromium
 ```
 
 The e2e suite adds a customer, records udhar and jama, reloads to prove IndexedDB persistence,
+reproduces the start-up navigation race under 6x CPU throttling,
 switches the browser offline and keeps writing, checks the PDF is a real `%PDF-` file, exports
 a valid zip of logs, flips theme and language, and asserts the About block carries the contact
 email, the Instagram call to action and the version.

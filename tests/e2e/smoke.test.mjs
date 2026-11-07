@@ -171,6 +171,18 @@ test('recording "You Gave" updates the balance in red and persists', async () =>
   assert.match(await page.$eval('#main', (node) => node.textContent), /Rice and oil/);
 });
 
+test('a tap during start-up still opens the ledger (regression)', async () => {
+  // The hashchange listener used to be attached only after boot() finished
+  // awaiting settings, IndexedDB and the sync engine, so a tap in that window
+  // changed the URL and rendered nothing. Throttling the CPU widens that window.
+  await page.emulateCPUThrottling(6);
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('[data-customer-id]', { timeout: 20000 });
+  await click('[data-customer-id]');
+  await page.waitForSelector('#ledger-gave', { timeout: 20000 });
+  await page.emulateCPUThrottling(1);
+});
+
 test('a payment reduces the balance and turns it green when it flips', async () => {
   await click('#ledger-got');
   await fill('#tx-amount', '800');
