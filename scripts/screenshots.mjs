@@ -131,8 +131,19 @@ await new Promise((resolve) => setTimeout(resolve, 400));
 await page.screenshot({ path: join(OUT, 'entry-sheet.png') });
 await page.keyboard.press('Escape');
 
-// Settings
-await page.goto(`http://localhost:${PORT}/#/settings`, { waitUntil: 'networkidle2' });
+// Settings, captured as the Android shell sees it so the SMS rows are real.
+await page.evaluateOnNewDocument(() => {
+  window.KhataAndroid = {
+    platform: () => 'android/screenshot',
+    canSendSms: () => true,
+    smsQuota: () => JSON.stringify({ sent: 3, cap: 90, date: '2026-11-07' }),
+    sendSms: () => {},
+  };
+});
+// A hash-only change would keep the existing document and skip the injected
+// bridge, so load a fresh document first.
+await page.goto(`http://localhost:${PORT}/?settings=1`, { waitUntil: 'networkidle2' });
+await page.goto(`http://localhost:${PORT}/?settings=1#/settings`, { waitUntil: 'networkidle2' });
 await page.waitForSelector('#about-email');
 await new Promise((resolve) => setTimeout(resolve, 350));
 await page.screenshot({ path: join(OUT, 'settings.png') });

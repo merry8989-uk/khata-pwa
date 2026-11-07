@@ -11,6 +11,7 @@
 import { allSettings, markSynced, pendingRows, setSetting } from './db.js';
 import { API_BASE } from './config.js';
 import { generateDeviceToken } from './shared/token.js';
+import { hasDeviceSms } from './sms.js';
 
 export const SYNC_TIMEOUT_MS = 15000;
 export const MAX_ATTEMPTS = 5;
@@ -46,7 +47,9 @@ export async function readConfig({ apiBase = API_BASE } = {}) {
     apiBase: String(apiBase || '').trim().replace(/\/+$/, ''),
     apiToken: await deviceToken(),
     autoSync: stored.autoSync !== false,
-    smsAlerts: stored.smsAlerts !== false,
+    // When the phone texts the customer itself, the Worker is told not to: one
+    // message per entry, never two.
+    smsAlerts: stored.smsAlerts !== false && !hasDeviceSms(),
     shopName: String(stored.shopName || '').trim(),
   };
 }

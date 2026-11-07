@@ -199,10 +199,12 @@ test('the connection row shows the baked server, not an input', async () => {
   await page.waitForSelector('#setting-connection');
   const row = await page.evaluate(() => ({
     text: document.querySelector('#setting-connection').textContent,
+    state: document.querySelector('#setting-connection-state')?.textContent || '',
     inputs: [...document.querySelectorAll('#main input[type="url"], #main input[type="password"]')].length,
     syncNowHint: document.querySelector('#setting-sync-now')?.parentElement?.textContent || '',
   }));
-  assert.match(row.text, new RegExp(`127\\.0\\.0\\.1:${WORKER_PORT}`));
+  assert.match(row.text, new RegExp(`127\\.0\\.0\\.1:${WORKER_PORT}`), 'the row names the server it talks to');
+  assert.match(row.state, /Connected|Off/);
   assert.equal(row.inputs, 0, 'no URL or token field exists');
-  assert.match(row.syncNowHint, /127\.0\.0\.1/, 'the sync row names the server it talks to');
+  assert.match(row.syncNowHint, /waiting/i, 'the sync row reports the queue, not the address');
 });

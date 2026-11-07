@@ -197,6 +197,11 @@ export async function putTransaction(transaction) {
     created_at: transaction.created_at || new Date().toISOString(),
     synced: transaction.synced === true,
     sync_flag: transaction.synced === true ? 1 : 0,
+    // Customer SMS state, so an entry is never texted twice and the ledger can
+    // show whether the message actually left the phone.
+    sms_status: transaction.sms_status || null,
+    sms_at: transaction.sms_at || null,
+    sms_error: transaction.sms_error || null,
   };
   await withStore(STORE.TRANSACTIONS, 'readwrite', (store) => req(store.put(row)));
   return row;

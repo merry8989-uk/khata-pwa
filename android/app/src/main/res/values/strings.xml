@@ -18,6 +18,9 @@
     <string name="update_permission_message">Android needs your permission to install an update from Khata itself.</string>
     <string name="update_open_settings">Open settings</string>
 
+    <string name="sms_permission_granted">SMS permission granted</string>
+    <string name="sms_permission_denied">Without SMS permission Khata cannot text customers</string>
+
     <string name="logs_title">Khata log</string>
     <string name="logs_message">Khata closed unexpectedly last time. Sharing the log helps fix it. It stays on this device unless you send it.</string>
     <string name="logs_share">Share log</string>

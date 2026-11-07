@@ -45,6 +45,14 @@ import {
 } from './shared/ledger.js';
 import { formatReminderText } from './shared/sms.js';
 import {
+  SMS_TONE,
+  hasDeviceSms,
+  installSmsResultHandler,
+  sendEntrySms,
+  shouldSendEntrySms,
+  smsQuota,
+} from './sms.js';
+import {
   LIMITS,
   cleanText,
   newId,
@@ -479,6 +487,7 @@ function ledgerRow(tx, customer) {
       { class: 'min-w-0 flex-1' },
       el('p', { class: 'truncate text-sm font-semibold text-body', text: tx.note || (isGiven ? t('tx.gaveTitle') : t('tx.gotTitle')) }),
       el('p', { class: 'text-xs text-sub', text: formatDateTime(tx.occurred_at || tx.created_at) }),
+      smsChip(tx),
     ),
     el(
       'div',
@@ -857,6 +866,7 @@ async function renderSettings(main) {
       toggleRow(t('settings.smsAlerts'), t('settings.smsAlertsHint'), s.smsAlerts, (next) =>
         updateSetting('smsAlerts', next),
       ),
+      smsQuotaRow(),
       toggleRow(t('settings.autoSync'), t('settings.autoSyncHint'), s.autoSync, async (next) => {
         await updateSetting('autoSync', next);
         if (next) engine?.syncNow('toggle');
@@ -881,7 +891,7 @@ async function renderSettings(main) {
       connectionRow(),
       actionRow(
         t('settings.syncNow'),
-        API_BASE ? t('settings.serverFixed', { host: serverHost() }) : t('settings.serverNotDeployed'),
+        state.sync.pending > 0 ? t('status.pending', { count: state.sync.pending }) : t('settings.nothingPending'),
         t('settings.syncNow'),
         async () => {
           const result = await engine?.syncNow('manual');
@@ -1113,6 +1123,34 @@ async function updateSetting(key, value) {
   logger.info('settings', 'Setting changed', { key, value });
 }
 
+/** Read-only: how many messages the SIM has sent today, out of the daily cap. */
+function smsQuotaRow() {
+  const quota = smsQuota();
+  const bridge = hasDeviceSms();
+  const label = !bridge
+    ? t('settings.smsUnavailable')
+    : quota
+      ? t('settings.smsQuota', { sent: quota.sent, cap: quota.cap })
+      : t('settings.smsUnknown');
+  return el(
+    'div',
+    { class: 'flex items-center justify-between gap-3 px-4 py-3', id: 'setting-sms-quota' },
+    el(
+      'div',
+      { class: 'min-w-0' },
+      el('p', { class: 'text-sm font-semibold text-body', text: t('settings.smsToday') }),
+      el('p', { class: 'mt-0.5 text-[0.7rem] leading-snug text-sub', text: label }),
+    ),
+    el(
+      'span',
+      {
+        class: `chip shrink-0 ${bridge ? 'bg-paid-100 text-paid-700' : 'surface-muted text-sub'}`,
+        text: bridge ? t('settings.smsDevice') : t('settings.smsBrowser'),
+      },
+    ),
+  );
+}
+
 function serverHost() {
   try {
     return new URL(API_BASE).host;
@@ -1123,31 +1161,24 @@ function serverHost() {
 
 /** Read-only: the server address is baked into the build, never typed by the shopkeeper. */
 function connectionRow() {
-  const connected = state.sync.status !== STATUS.LOCAL_ONLY && state.sync.status !== STATUS.OFFLINE;
+  const connected = Boolean(API_BASE) && state.sync.status !== STATUS.LOCAL_ONLY;
   return el(
     'div',
-    { class: 'flex items-center justify-between gap-3 px-4 py-3', id: 'setting-connection' },
+    { class: 'flex items-start justify-between gap-3 px-4 py-3', id: 'setting-connection' },
     el(
       'div',
-      { class: 'min-w-0' },
+      { class: 'min-w-0 flex-1' },
       el('p', { class: 'text-sm font-semibold text-body', text: t('settings.connection') }),
       el('p', {
         class: 'mt-0.5 break-words text-[0.7rem] leading-snug text-sub',
-        text: API_BASE
-          ? t('settings.connectionHint', { host: serverHost() })
-          : t('settings.serverNotDeployed'),
+        text: API_BASE ? t('settings.connectionHint', { host: serverHost() }) : t('settings.serverNotDeployed'),
       }),
     ),
-    el(
-      'span',
-      {
-        class: `chip shrink-0 ${
-          connected ? 'bg-paid-100 text-paid-700' : 'surface-muted text-sub'
-        }`,
-        id: 'setting-connection-state',
-        text: API_BASE ? (connected ? t('settings.connected') : t('status.offline')) : t('settings.notConnected'),
-      },
-    ),
+    el('span', {
+      class: `chip shrink-0 ${connected ? 'bg-paid-100 text-paid-700' : 'surface-muted text-sub'}`,
+      id: 'setting-connection-state',
+      text: connected ? t('settings.syncOn') : t('settings.syncOff'),
+    }),
   );
 }
 
@@ -1543,6 +1574,9 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
               return;
             }
 
+            const saved = await db.getTransaction(result.value.id);
+            await maybeSendEntrySms(customer, saved);
+
             logger.info('transaction', 'Entry saved', {
               transactionId: result.value.id,
               type: result.value.type,
@@ -1561,6 +1595,74 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
         transaction ? t('common.save') : t('tx.save'),
       ),
     ],
+  });
+}
+
+/* --------------------------------------------------------------------- sms */
+
+/**
+ * Texts the customer from the phone's own SIM. Called after an entry is written,
+ * so it works offline; the result is stored on the entry either way.
+ */
+async function maybeSendEntrySms(customer, transaction) {
+  const decision = shouldSendEntrySms({
+    customer,
+    transaction,
+    settings: state.settings,
+    bridge: hasDeviceSms() ? globalThis.KhataAndroid : null,
+  });
+  if (!decision.send) {
+    if (decision.reason !== 'no_device_sms' && decision.reason !== 'disabled') {
+      logger.debug('sms', 'SMS skipped', { reason: decision.reason, transactionId: transaction?.id });
+    }
+    return null;
+  }
+
+  const transactions = await db.transactionsForCustomer(customer.id);
+  const result = await sendEntrySms({ transaction, customer, transactions });
+  const updated = {
+    ...transaction,
+    sms_status: result.status,
+    sms_at: new Date().toISOString(),
+    sms_error: result.detail || null,
+  };
+  try {
+    await db.putTransaction(updated);
+  } catch (error) {
+    logger.warn('sms', 'Could not store the SMS result', { message: error?.message });
+  }
+
+  const tone = SMS_TONE[result.status] || 'warn';
+  const message =
+    result.status === 'sent'
+      ? t('toast.smsSent', { name: customer.name })
+      : result.status === 'daily_cap'
+        ? t('toast.smsCap')
+        : result.status === 'permission_required'
+          ? t('toast.smsPermission')
+          : t('toast.smsFailed');
+  toast(message, { tone: tone === 'ok' ? 'success' : tone === 'bad' ? 'error' : 'default' });
+  render();
+  return result;
+}
+
+function smsChip(transaction) {
+  if (!transaction.sms_status) return null;
+  const status = transaction.sms_status;
+  if (status === 'sent') {
+    return el('span', {
+      class: 'chip mt-1 bg-paid-100 text-[0.6rem] font-semibold text-paid-700',
+      title: t('ledger.smsSent'),
+      text: 'SMS',
+    });
+  }
+  if (status === 'queued') {
+    return el('span', { class: 'chip mt-1 surface-muted text-[0.6rem] text-sub', text: 'SMS…' });
+  }
+  return el('span', {
+    class: 'chip mt-1 bg-due-100 text-[0.6rem] font-semibold text-due-700',
+    title: transaction.sms_error || status,
+    text: t('ledger.smsFailed'),
   });
 }
 
@@ -1745,6 +1847,9 @@ async function boot() {
   installGlobalHandlers();
 
   try {
+    // Before any entry can be saved, so the shell's radio verdict always has a
+    // handler waiting for it.
+    installSmsResultHandler();
     state.settings = await settings.loadSettings();
     setLanguage(state.settings.language);
     setLogging(state.settings.logging);

@@ -11,6 +11,7 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.content.IntentFilter;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.util.Base64;
@@ -57,6 +58,8 @@ public class MainActivity extends Activity {
     private static final int WRITE_PERMISSION_REQUEST = 4711;
 
     private WebView webView;
+    private SmsGateway smsGateway;
+    private android.content.BroadcastReceiver smsReceiver;
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private String pendingName;
     private String pendingMime;
@@ -97,6 +100,14 @@ public class MainActivity extends Activity {
             settings.setSafeBrowsingEnabled(true);
         }
         CookieManager.getInstance().setAcceptCookie(true);
+
+        smsGateway = new SmsGateway(this, webView);
+        smsReceiver = SmsGateway.receiver(webView);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(smsReceiver, SmsGateway.filter(), Context.RECEIVER_EXPORTED);
+        } else {
+            registerReceiver(smsReceiver, SmsGateway.filter());
+        }
 
         webView.addJavascriptInterface(new Bridge(), "KhataAndroid");
         webView.setWebViewClient(new Client());
@@ -156,6 +167,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (smsReceiver != null) {
+            try {
+                unregisterReceiver(smsReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // already gone
+            }
+        }
         io.shutdown();
         if (webView != null) {
             webView.removeJavascriptInterface("KhataAndroid");
@@ -265,6 +283,26 @@ public class MainActivity extends Activity {
             return "android/" + BuildConfig.VERSION_NAME;
         }
 
+        /**
+         * Free SMS from this phone's SIM. Returns immediately; the outcome arrives
+         * later through window.__khataSmsResult(entryId, status, detail).
+         */
+        @JavascriptInterface
+        public void sendSms(String entryId, String number, String body) {
+            smsGateway.send(entryId, number, body);
+        }
+
+        /** {"sent":n,"cap":90,"date":"..."} for the Settings screen. */
+        @JavascriptInterface
+        public String smsQuota() {
+            return smsGateway.quotaJson();
+        }
+
+        @JavascriptInterface
+        public boolean canSendSms() {
+            return SmsGateway.hasPermission(MainActivity.this);
+        }
+
         /** The web About screen's "Check for updates" calls this in the shell. */
         @JavascriptInterface
         public void checkAppUpdate() {
@@ -275,6 +313,12 @@ public class MainActivity extends Activity {
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == SmsGateway.REQUEST_CODE_PERMISSION) {
+            boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+            Toast.makeText(this, granted ? R.string.sms_permission_granted : R.string.sms_permission_denied,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
         if (requestCode != WRITE_PERMISSION_REQUEST) return;
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED
                 && pendingBase64 != null) {

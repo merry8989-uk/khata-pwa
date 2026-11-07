@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- In-app update: the shell downloads the new APK and hands it to the installer. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Free customer SMS alerts, sent from this phone's own SIM. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
     <!-- Only needed to write statements and backups into Downloads on Android 9 and below. -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

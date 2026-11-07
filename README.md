@@ -56,6 +56,7 @@ tests/
 android/             the Android shell (WebView + in-app APK updates)
   app/src/main/java/io/github/merry8989uk/khata/
     MainActivity.java   full-screen WebView, download bridge, external links
+    SmsGateway.java     free customer SMS from the SIM, with cap and radio receipts
     UpdateChecker.java  GitHub Releases check, download and install in place
     CrashLog.java       native crash log with share / delete
   app/src/main/res/     launcher icons, strings, theme
@@ -85,8 +86,9 @@ HTTPS, which is why the built output is served rather than opening the file dire
 
 ```bash
 npm run lint           # node --check on every file, i18n parity, content rules, precache list
-npm test               # 72 unit tests (node:test), including the Worker handler with D1/KV doubles
-npm run test:e2e       # 17 browser tests: 13 on the app alone, 4 against a real Worker handler
+npm test               # 83 unit tests (node:test), including the Worker handler with D1/KV doubles
+npm run test:e2e       # 21 browser tests: 13 on the app alone, 4 against a real Worker handler,
+                       # 4 with the Android SMS bridge stubbed
 ```
 
 The e2e suite adds a customer, records udhar and jama, reloads to prove IndexedDB persistence,
@@ -164,9 +166,35 @@ curl https://khata-api.<subdomain>.workers.dev/api/whoami \
 # {"ok":true,"shop_id":"default","counts":{"customers":0,"transactions":0},...}
 ```
 
-### Turn on SMS
+### Customer SMS (free, from the phone's SIM)
 
-Set the provider in `worker/wrangler.toml` and add its secrets:
+SMS is sent by the Android app from its own SIM: no gateway, no per-message fee, no top-up, and
+it works with the internet off. The message is the same template as before:
+
+```
+Dear Ramesh Kumar, Rs.5,000 Gave on 07 Nov 2026. Net Balance: Rs.3,750.- KhataApp
+```
+
+How it behaves:
+
+- Sent after an entry is saved, once per entry. The entry is marked `sent` only when the radio
+  reports the network accepted it; a failure is stored on the row and shown in the timeline
+  rather than being passed off as delivered.
+- The app asks for `SEND_SMS` on the first attempt. Without it nothing is sent and the entry is
+  still saved.
+- A daily cap of 90 messages (a normal Indian recharge pack allows about 100/day) is enforced in
+  the shell, and Settings shows `N of 90 messages sent from this SIM`.
+- Turning **SMS alerts on new entries** off stops it entirely.
+- When the phone is doing the texting, the app sends `sms_alerts: false` to the Worker, so the
+  server-side gateway can never double up.
+
+This is for a shop's own customers, one message per entry. Bulk or promotional SMS in India needs
+DLT registration and a registered sender; a personal SIM is not the channel for that.
+
+### Optional: server-side SMS
+
+The Worker still supports Fast2SMS and Twilio for anyone who wants messages to leave from a server
+instead of a phone. It is off by default:
 
 ```toml
 [vars]
@@ -176,24 +204,13 @@ ALLOWED_ORIGINS = "https://merry8989-uk.github.io"
 ```
 
 ```bash
-# Fast2SMS
 npx wrangler secret put FAST2SMS_API_KEY --config worker/wrangler.toml
-
-# Twilio
-npx wrangler secret put TWILIO_ACCOUNT_SID --config worker/wrangler.toml
-npx wrangler secret put TWILIO_AUTH_TOKEN  --config worker/wrangler.toml
-npx wrangler secret put TWILIO_FROM        --config worker/wrangler.toml
-```
-
-The message body is exactly:
-
-```
-Dear Ramesh Kumar, Rs.5,000 Gave on 07 Nov 2026. Net Balance: Rs.3,750.- KhataApp
+# or TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM
 ```
 
 Every attempt is recorded in `sms_log` with status `queued` / `sent` / `failed` /
 `skipped_cap`, a `UNIQUE(shop_id, transaction_id)` key that makes a send at-most-once, and a
-daily cap so a sync loop cannot drain your credit. Retry failures with:
+daily cap. Retry failures with:
 
 ```bash
 curl -X POST https://khata-api.<subdomain>.workers.dev/api/sms/retry \
@@ -201,7 +218,7 @@ curl -X POST https://khata-api.<subdomain>.workers.dev/api/sms/retry \
 ```
 
 With `SMS_PROVIDER = "none"` the API responds `sms: {enabled: false, note: "sms_disabled"}`
-and sends nothing. It never reports a message as sent when it was not.
+and sends nothing.
 
 ## How the offline queue works
 

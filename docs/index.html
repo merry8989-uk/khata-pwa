@@ -133,6 +133,12 @@
                   <strong>Edit and delete.</strong> Edit the name or phone; deleting a customer removes their entries
                   too, after a confirmation.
                 </li>
+                <li>
+                  <strong>Free customer SMS.</strong> In the Android app, every entry texts the customer from your own
+                  SIM: "Dear [Name], Rs.[Amount] Gave on [Date]. Net Balance: Rs.[Balance].- KhataApp". No gateway, no
+                  top-up, and it works with the internet off. Each entry is texted once, the result is marked on the
+                  row, and the daily count is capped at 90 to stay inside a normal recharge pack.
+                </li>
               </ul>
             </div>
 
@@ -245,8 +251,9 @@
                   <strong><span class="tag">POST /api/sms/retry</span></strong> - re-sends failed SMS rows.
                 </li>
                 <li>
-                  <strong>Automated SMS.</strong> "Dear [Name], Rs.[Amount] Gave on [Date]. Net Balance:
-                  Rs.[Balance].- KhataApp", sent through Fast2SMS or Twilio, at most once per entry, with a daily cap.
+                  <strong>Optional server-side SMS.</strong> If you would rather text from a gateway than from your
+                  own phone, the Worker can still drive Fast2SMS or Twilio - off by default, and it will never double
+                  up with the phone.
                 </li>
                 <li>
                   <strong>Bearer-token auth</strong> against Cloudflare KV (token → shop id), soft deletes, and
@@ -367,6 +374,11 @@
                 exports are written to your Downloads folder, where any file manager can find them.
               </li>
               <li>
+                <strong>Free SMS from your SIM.</strong> With the SMS permission granted, Khata texts the
+                customer after each entry using your own recharge pack - no SMS gateway and no
+                per-message cost. Settings shows how many messages the SIM has sent today.
+              </li>
+              <li>
                 <strong>Updates without a browser.</strong> Settings &gt; About &gt; Check for updates
                 asks GitHub for the newest release, downloads it and hands it to the Android
                 installer. It also checks quietly once at launch.
@@ -415,8 +427,9 @@
         <div class="wrap">
           <h2 class="h2">Turn on cloud sync and SMS</h2>
           <p class="mt-2 max-w-3xl text-[color:var(--muted)]">
-            The Worker is included in the repository. You deploy it to your own Cloudflare account, so the SMS credit
-            and the data are yours.
+            The Worker is included in the repository. You deploy it to your own Cloudflare account, so the data is
+            yours. You do not need it for SMS: the Android app texts customers from its own SIM for free. The Worker
+            is what backs the ledger up beyond the phone.
           </p>
           <pre class="code mt-6"><code># 1. create the database and the key store
 npx wrangler d1 create khata
@@ -435,10 +448,11 @@ npm run build
             store on the SHA-256 of the device key, and provisions a shop the first time a device writes.
           </p>
           <p class="mt-2 text-sm text-[color:var(--muted)]">
-            For SMS set <span class="tag">SMS_PROVIDER</span> to <span class="tag">fast2sms</span> or
-            <span class="tag">twilio</span> in <span class="tag">worker/wrangler.toml</span> and add the matching
-            secrets. With <span class="tag">SMS_PROVIDER = "none"</span> no message is attempted and the API says so
-            instead of pretending.
+            Server-side SMS stays off unless you ask for it: set <span class="tag">SMS_PROVIDER</span> to
+            <span class="tag">fast2sms</span> or <span class="tag">twilio</span> and add the matching secrets. With
+            the default <span class="tag">SMS_PROVIDER = "none"</span> no message is attempted and the API says so
+            instead of pretending. When the phone is doing the texting, the app tells the Worker to stay quiet, so a
+            customer never gets two messages for one entry.
           </p>
         </div>
       </section>
@@ -461,9 +475,11 @@ npm run build
               is edited on two phones at once the later update wins. There is no conflict UI.
             </li>
             <li>
-              <strong>SMS needs your own gateway.</strong> Nothing is sent until you configure Fast2SMS or Twilio and
-              pay for that account. Delivery is logged per entry in <span class="tag">sms_log</span>, including
-              failures.
+              <strong>SMS runs on one SIM.</strong> Free messages come out of the phone's own recharge pack, which in
+              India is usually capped near 100 a day; Khata stops at 90 and says so. The phone has to be the one
+              running Khata, it must have the SMS permission, and messages are only marked sent when the network
+              accepts them. Bulk or promotional SMS needs DLT registration in India - this is for a shop's own
+              customers, one message per entry.
             </li>
             <li>
               <strong>No inventory, GST invoicing or billing.</strong> Khata is a credit ledger, not accounting

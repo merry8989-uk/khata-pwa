@@ -119,6 +119,17 @@ if (!existsSync(outDir)) {
 
     const versionMatch = sw.match(/khata-shell-\$\{APP_VERSION\}/);
     if (!versionMatch) fail('sw.js cache name is not versioned');
+
+    // A module that is not precached is a module that 404s on the second, offline
+    // launch - the failure mode this check exists to prevent.
+    const builtModules = sh(`find ${outDir}/js -name '*.js' -printf '%P\\n' | sort`)
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((file) => `./js/${file}`);
+    const notPrecached = builtModules.filter((file) => !entries.includes(file));
+    if (notPrecached.length) fail(`app modules missing from PRECACHE: ${notPrecached.join(', ')}`);
+    else pass(`all ${builtModules.length} app modules are precached`);
   }
 }
 
