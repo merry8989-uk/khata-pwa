@@ -25,7 +25,8 @@ android {
     signingConfigs {
         if (keystorePath != null) {
             create("release") {
-                storeFile = file(keystorePath)
+                // Resolved against android/, where CI writes it, not against app/.
+                storeFile = rootProject.file(keystorePath)
                 storeType = "PKCS12"
                 storePassword = System.getenv("KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("KEY_ALIAS")

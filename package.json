@@ -1,6 +1,6 @@
 {
   "name": "khata-pwa",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "private": true,
   "type": "module",
   "description": "Khata - offline-first digital ledger PWA for shopkeepers (Udhar/Jama) with Cloudflare Worker SMS sync",
