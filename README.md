@@ -100,6 +100,8 @@ git push -u origin main
 ```
 
 Then in the repository: **Settings > Pages > Build and deployment > Source: GitHub Actions**.
+(Only needed once per repository: the first `configure-pages` run can create the site itself
+when the workflow token has the Pages permission, otherwise the settings page enables it.)
 The first workflow run publishes:
 
 - `https://merry8989-uk.github.io/khata-pwa/` - the public page documenting every feature
