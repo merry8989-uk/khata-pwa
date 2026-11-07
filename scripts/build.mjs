@@ -71,7 +71,6 @@ writeFileSync(
   join(OUT, 'version.json'),
   `${JSON.stringify({ name: 'Khata', version: VERSION, built_at: new Date().toISOString() }, null, 2)}\n`,
 );
-copy('src/js/theme-boot.js', join(OUT, 'js', 'theme-boot.js'));
 
 step('writing landing-page version script');
 writeFileSync(

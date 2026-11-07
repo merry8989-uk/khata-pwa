@@ -80,7 +80,6 @@ await page.evaluate(
     const { db, settings, api } = window.Khata;
     await settings.update('shopName', shop.name);
     await settings.update('shopPhone', shop.phone);
-    await settings.update('theme', 'light');
     for (const customer of customers) {
       await db.putCustomer({
         id: customer.id,
@@ -138,15 +137,10 @@ await page.waitForSelector('#about-email');
 await new Promise((resolve) => setTimeout(resolve, 350));
 await page.screenshot({ path: join(OUT, 'settings.png') });
 
-// Settings in dark mode with the About block in view
-await page.evaluate(() => {
-  const group = document.querySelector('[role="radiogroup"][aria-label="Theme"]');
-  [...group.querySelectorAll('[role="radio"]')].find((node) => node.textContent === 'Dark').click();
-});
-await new Promise((resolve) => setTimeout(resolve, 500));
+// The About block, which sits last in Settings
 await page.evaluate(() => document.querySelector('#about-email')?.scrollIntoView({ block: 'center' }));
 await new Promise((resolve) => setTimeout(resolve, 350));
-await page.screenshot({ path: join(OUT, 'about-dark.png') });
+await page.screenshot({ path: join(OUT, 'about.png') });
 
 await browser.close();
 server.kill('SIGTERM');

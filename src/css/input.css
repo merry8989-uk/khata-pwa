@@ -2,15 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens. Accent is switched at runtime by settings.js through --accent-*. */
+/* Design tokens. One accent, one light theme - no runtime switching. */
 :root {
   --accent-50: #eef2ff;
   --accent-100: #e0e7ff;
   --accent-500: #6366f1;
   --accent-600: #4f46e5;
   --accent-700: #4338ca;
-  --text-scale: 1;
-  --row-pad: 0.875rem;
   --app-bg: #f8fafc;
   --surface: #ffffff;
   --surface-muted: #f1f5f9;
@@ -20,28 +18,8 @@
   color-scheme: light;
 }
 
-[data-theme='dark'] {
-  --app-bg: #0b1220;
-  --surface: #131c2e;
-  --surface-muted: #1b2537;
-  --border: #263248;
-  --text: #e6edf7;
-  --text-muted: #94a3b8;
-  color-scheme: dark;
-}
-
-[data-text-size='sm'] {
-  --text-scale: 0.925;
-}
-[data-text-size='lg'] {
-  --text-scale: 1.09;
-}
-[data-density='compact'] {
-  --row-pad: 0.5rem;
-}
-
 html {
-  font-size: calc(100% * var(--text-scale));
+  font-size: 100%;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -85,8 +63,7 @@ body {
     background-color: var(--accent-50);
   }
   .row-pad {
-    padding-top: var(--row-pad);
-    padding-bottom: var(--row-pad);
+    @apply py-3.5;
   }
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;

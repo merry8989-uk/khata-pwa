@@ -21,7 +21,6 @@ const PRECACHE = [
   './index.html',
   './manifest.json',
   './css/app.css',
-  './js/theme-boot.js',
   './js/app.js',
   './js/db.js',
   './js/settings.js',

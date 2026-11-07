@@ -222,19 +222,6 @@ function renderHeader() {
           dataset: { heading: '1' },
           text: t('settings.title'),
         }),
-        el(
-          'button',
-          {
-            type: 'button',
-            class: 'icon-btn',
-            'aria-label': t('settings.immersive'),
-            onclick: async () => {
-              const on = await settings.toggleFullscreen();
-              logger.info('ui', 'Fullscreen toggled', { on });
-            },
-          },
-          icon('expand', 'h-4 w-4'),
-        ),
       ),
     );
     return;
@@ -791,38 +778,6 @@ function segmented(label, options, value, onSelect, { hint } = {}) {
   return rowWrapper(label, hint, group);
 }
 
-function swatchRow(label, value, onSelect) {
-  const group = el('div', { class: 'flex items-center gap-2', role: 'radiogroup', 'aria-label': label });
-  for (const [id, palette] of Object.entries(settings.ACCENTS)) {
-    const selected = id === value;
-    const swatch = el('button', {
-      type: 'button',
-      role: 'radio',
-      'aria-checked': String(selected),
-      'aria-label': id,
-      'data-accent': id,
-      class: 'h-7 w-7 rounded-full transition-transform focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
-      style: {
-        backgroundColor: palette[600],
-        boxShadow: selected ? `0 0 0 2px var(--surface), 0 0 0 4px ${palette[600]}` : 'none',
-        transform: selected ? 'scale(0.92)' : 'none',
-      },
-      onclick: async () => {
-        for (const child of group.children) {
-          const isSelected = child.dataset.accent === id;
-          const colour = settings.ACCENTS[child.dataset.accent][600];
-          child.setAttribute('aria-checked', String(isSelected));
-          child.style.boxShadow = isSelected ? `0 0 0 2px var(--surface), 0 0 0 4px ${colour}` : 'none';
-          child.style.transform = isSelected ? 'scale(0.92)' : 'none';
-        }
-        await onSelect(id);
-      },
-    });
-    group.append(swatch);
-  }
-  return rowWrapper(label, null, group);
-}
-
 function textRow(label, hint, value, onCommit, { id, placeholder, type = 'text', maxLength } = {}) {
   const input = el('input', {
     id,
@@ -870,46 +825,6 @@ async function renderSettings(main) {
   state.stats = await db.stats();
   // Replace the loading placeholder with the real content in one go.
   clear(main);
-
-  /* Appearance */
-  main.append(
-    sectionCard(t('settings.appearance'), [
-      segmented(
-        t('settings.theme'),
-        [
-          { id: 'system', label: t('settings.theme.system') },
-          { id: 'light', label: t('settings.theme.light') },
-          { id: 'dark', label: t('settings.theme.dark') },
-        ],
-        s.theme,
-        (value) => updateSetting('theme', value),
-      ),
-      swatchRow(t('settings.accent'), s.accent, (value) => updateSetting('accent', value)),
-      segmented(
-        t('settings.textSize'),
-        [
-          { id: 'sm', label: t('settings.textSize.sm') },
-          { id: 'md', label: t('settings.textSize.md') },
-          { id: 'lg', label: t('settings.textSize.lg') },
-        ],
-        s.textSize,
-        (value) => updateSetting('textSize', value),
-      ),
-      segmented(
-        t('settings.density'),
-        [
-          { id: 'comfortable', label: t('settings.density.comfortable') },
-          { id: 'compact', label: t('settings.density.compact') },
-        ],
-        s.density,
-        (value) => updateSetting('density', value),
-      ),
-      toggleRow(t('settings.immersive'), t('settings.immersiveHint'), s.immersive, async (next) => {
-        await updateSetting('immersive', next);
-        if (next) await settings.toggleFullscreen();
-      }),
-    ]),
-  );
 
   /* General */
   main.append(
@@ -1817,8 +1732,6 @@ async function boot() {
     state.settings = await settings.loadSettings();
     setLanguage(state.settings.language);
     setLogging(state.settings.logging);
-    settings.applyAppearance(state.settings);
-    settings.watchSystemTheme();
 
     await db.openDb();
     logger.info('app', 'Boot', { version: APP_VERSION, language: state.settings.language });

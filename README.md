@@ -8,7 +8,7 @@ alert.
 - **Web app (PWA):** https://merry8989-uk.github.io/khata-pwa/app/
 - **Android app (signed APK):** https://github.com/merry8989-uk/khata-pwa/releases/latest
 - **Public page (feature reference):** https://merry8989-uk.github.io/khata-pwa/
-- **Version:** 1.1.0 · package id `io.github.merry8989uk.khata`
+- **Version:** 1.1.2 · package id `io.github.merry8989uk.khata`
 
 ---
 
@@ -19,7 +19,7 @@ src/                 the app shell that is copied into the build
   index.html         single page, CSP-locked, vendored jsPDF
   manifest.json      PWA manifest (id app.khata.ledger, standalone, shortcuts)
   sw.js              module service worker: precache, offline navigation, Background Sync
-  css/input.css      Tailwind entry + design tokens (theme, accent, density)
+  css/input.css      Tailwind entry + design tokens (light only, one accent)
   js/app.js          routing, views, forms, settings screen, update check
   js/db.js           IndexedDB layer (customers, transactions, tombstones, logs, settings)
   js/sync.js         page-side sync orchestration (online events, backoff, timers)
@@ -29,7 +29,7 @@ src/                 the app shell that is copied into the build
   js/i18n.js         English + Hindi dictionaries (same key set)
   js/logger.js       diagnostics logger (on by default, IndexedDB-backed)
   js/zip.js          store-only ZIP writer for log export
-  js/settings.js     settings defaults, persistence, theme application
+  js/settings.js     settings defaults and persistence
   js/version.js      APP_VERSION (rewritten by the build)
   icons/             generated PWA icons
 shared/              pure logic used by app, worker and tests
@@ -90,7 +90,7 @@ npm run test:e2e       # 13 browser tests against the built app in headless Chro
 The e2e suite adds a customer, records udhar and jama, reloads to prove IndexedDB persistence,
 reproduces the start-up navigation race under 6x CPU throttling,
 switches the browser offline and keeps writing, checks the PDF is a real `%PDF-` file, exports
-a valid zip of logs, flips theme and language, and asserts the About block carries the contact
+a valid zip of logs, switches language, asserts the Appearance controls are gone, and asserts the About block carries the contact
 email, the Instagram call to action and the version.
 
 ## Deploy the frontend to GitHub Pages
@@ -223,7 +223,7 @@ diagnostics (capped at 2000 entries), and `settings` holds every option.
 
 - Semantic HTML, one `h1` per view, labels tied to inputs, `role="switch"` toggles with
   `aria-checked`, a focus trap and Escape handling in every sheet, an `aria-live` toast region,
-  visible focus rings, `prefers-reduced-motion` respected, and WCAG AA contrast in both themes.
+  visible focus rings, `prefers-reduced-motion` respected, and WCAG AA contrast.
 - A strict Content-Security-Policy (`script-src 'self'`, `object-src 'none'`,
   `base-uri 'none'`) - no inline scripts, no CDN at runtime, no `eval`.
 - User text is written through `textContent`; `innerHTML` is only used for the static icon set.

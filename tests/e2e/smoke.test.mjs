@@ -248,18 +248,25 @@ test('diagnostics captured the session and export a valid zip', async () => {
   assert.ok(zip.size > 200);
 });
 
-test('settings change the theme, language and persist', async () => {
+test('settings change the language and persist', async () => {
   await page.goto(`${BASE}#/settings`, { waitUntil: 'networkidle2' });
   await page.waitForSelector('#about-email');
 
-  const themeBefore = await page.evaluate(() => document.documentElement.dataset.theme);
-  await page.evaluate(() => {
-    const group = document.querySelector('[role="radiogroup"][aria-label="Theme"]');
-    const target = [...group.querySelectorAll('[role="radio"]')].find((node) => node.textContent === 'Dark');
-    target.click();
-  });
-  await page.waitForFunction(() => document.documentElement.dataset.theme === 'dark');
-  assert.notEqual(themeBefore, 'dark');
+  // Appearance options are gone: the app ships one light theme and one accent.
+  const appearance = await page.evaluate(() => ({
+    themeGroup: Boolean(document.querySelector('[role="radiogroup"][aria-label="Theme"]')),
+    themeAttribute: document.documentElement.dataset.theme || null,
+    sections: [...document.querySelectorAll('#main h2')].map((node) => node.textContent.trim()),
+  }));
+  assert.equal(appearance.themeGroup, false, 'the Appearance controls must not be rendered');
+  assert.equal(appearance.themeAttribute, null, 'no theme attribute is set any more');
+  assert.deepEqual(appearance.sections, [
+    'General',
+    'Data and backup',
+    'Diagnostics',
+    'Reset to defaults',
+    'About',
+  ]);
 
   await page.evaluate(() => {
     const group = document.querySelector('[role="radiogroup"][aria-label="Language"]');
@@ -271,8 +278,7 @@ test('settings change the theme, language and persist', async () => {
 
   await page.reload({ waitUntil: 'networkidle2' });
   await page.waitForSelector('#about-email');
-  assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');
-  assert.match(await text('#app-nav'), /होम/);
+  assert.match(await text('#app-nav'), /होम/, 'the language choice survives a reload');
 
   // Back to English so later assertions read the source strings.
   await page.evaluate(() => {
