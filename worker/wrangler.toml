@@ -15,13 +15,17 @@ binding = "DB"
 database_name = "khata"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 
-# --- KV: sync tokens (key: token:<token>  value: shop id or {"shop_id":"..."}) -
+# --- KV: device tokens -> shop ids ------------------------------------------
+# Nothing to seed here. Each install mints its own token on first launch and the
+# Worker writes `shop:<sha256(token)>` -> `shop_<hash prefix>` on that device's
+# first write. There is no token to paste into the app and no shared secret in the
+# public bundle.
 [[kv_namespaces]]
 binding = "AUTH"
 id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 
 [vars]
-# Single-shop fallback used together with the SHOP_TOKEN secret.
+# Shop id used only by the optional operator token below.
 SHOP_ID = "default"
 # "none" | "fast2sms" | "twilio". "none" means no SMS is attempted at all.
 SMS_PROVIDER = "none"
@@ -31,7 +35,7 @@ SMS_DAILY_CAP = "200"
 ALLOWED_ORIGINS = "*"
 
 # --- Secrets (never put these in this file) ----------------------------------
-#   wrangler secret put SHOP_TOKEN          # the token the app sends as a bearer
+#   wrangler secret put SHOP_TOKEN          # OPTIONAL operator token for curl/support
 #   wrangler secret put FAST2SMS_API_KEY    # when SMS_PROVIDER = fast2sms
 #   wrangler secret put TWILIO_ACCOUNT_SID  # when SMS_PROVIDER = twilio
 #   wrangler secret put TWILIO_AUTH_TOKEN

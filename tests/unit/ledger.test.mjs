@@ -12,7 +12,7 @@ import {
   statementRows,
   summarize,
   withRunningBalance,
-} from '../../shared/ledger.js';
+} from '../../src/js/shared/ledger.js';
 
 const at = (day, hour = 12) => new Date(2026, 10, day, hour, 0, 0).toISOString();
 

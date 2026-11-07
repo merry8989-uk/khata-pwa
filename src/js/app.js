@@ -30,6 +30,7 @@ import {
 } from './ui.js';
 import { createZip } from './zip.js';
 import { APP_VERSION } from './version.js';
+import { API_BASE } from './config.js';
 import { formatINR, paiseToInput, parseAmountToPaise } from './shared/money.js';
 import {
   TYPES,
@@ -877,33 +878,10 @@ async function renderSettings(main) {
           engine?.start();
         },
       ),
-      textRow(
-        t('settings.apiBase'),
-        t('settings.apiBaseHint'),
-        s.apiBase,
-        async (value) => {
-          await updateSetting('apiBase', value.replace(/\/+$/, ''));
-          refreshSyncStatus();
-          engine?.syncNow('config');
-        },
-        { id: 'setting-api-base', type: 'url', placeholder: 'https://khata-api.example.workers.dev' },
-      ),
-      textRow(
-        t('settings.apiToken'),
-        t('settings.apiTokenHint'),
-        s.apiToken,
-        async (value) => {
-          await updateSetting('apiToken', value);
-          refreshSyncStatus();
-          engine?.syncNow('config');
-        },
-        { id: 'setting-api-token', type: 'password' },
-      ),
+      connectionRow(),
       actionRow(
         t('settings.syncNow'),
-        isConfigured({ apiBase: s.apiBase, apiToken: s.apiToken })
-          ? t('settings.connected')
-          : t('settings.notConnected'),
+        API_BASE ? t('settings.serverFixed', { host: serverHost() }) : t('settings.serverNotDeployed'),
         t('settings.syncNow'),
         async () => {
           const result = await engine?.syncNow('manual');
@@ -1132,11 +1110,49 @@ async function updateSetting(key, value) {
   state.settings = settings.current();
   if (key === 'language') setLanguage(value);
   if (key === 'logging') setLogging(value);
-  logger.info('settings', 'Setting changed', { key, value: key === 'apiToken' ? '[redacted]' : value });
+  logger.info('settings', 'Setting changed', { key, value });
+}
+
+function serverHost() {
+  try {
+    return new URL(API_BASE).host;
+  } catch {
+    return API_BASE;
+  }
+}
+
+/** Read-only: the server address is baked into the build, never typed by the shopkeeper. */
+function connectionRow() {
+  const connected = state.sync.status !== STATUS.LOCAL_ONLY && state.sync.status !== STATUS.OFFLINE;
+  return el(
+    'div',
+    { class: 'flex items-center justify-between gap-3 px-4 py-3', id: 'setting-connection' },
+    el(
+      'div',
+      { class: 'min-w-0' },
+      el('p', { class: 'text-sm font-semibold text-body', text: t('settings.connection') }),
+      el('p', {
+        class: 'mt-0.5 break-words text-[0.7rem] leading-snug text-sub',
+        text: API_BASE
+          ? t('settings.connectionHint', { host: serverHost() })
+          : t('settings.serverNotDeployed'),
+      }),
+    ),
+    el(
+      'span',
+      {
+        class: `chip shrink-0 ${
+          connected ? 'bg-paid-100 text-paid-700' : 'surface-muted text-sub'
+        }`,
+        id: 'setting-connection-state',
+        text: API_BASE ? (connected ? t('settings.connected') : t('status.offline')) : t('settings.notConnected'),
+      },
+    ),
+  );
 }
 
 function refreshSyncStatus() {
-  const configured = isConfigured({ apiBase: state.settings.apiBase, apiToken: state.settings.apiToken });
+  const configured = isConfigured({ apiBase: API_BASE });
   if (!configured || !state.settings.autoSync) state.sync.status = STATUS.LOCAL_ONLY;
   renderHeader();
 }

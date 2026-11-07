@@ -34,7 +34,7 @@ function sh(command) {
 /* 1. syntax ---------------------------------------------------------------- */
 process.stdout.write('\nSyntax\n');
 const jsFiles = sh(
-  "find src shared worker/src scripts tests -type f \\( -name '*.js' -o -name '*.mjs' \\) | sort",
+  "find src worker/src scripts tests -type f \\( -name '*.js' -o -name '*.mjs' \\) | sort",
 )
   .trim()
   .split('\n')
@@ -74,7 +74,7 @@ else pass(`${usedKeys.size} static t() keys resolve`);
 /* 3. forbidden content ---------------------------------------------------- */
 process.stdout.write('\nContent rules\n');
 const scannable = sh(
-  "find src shared worker/src scripts docs/index.html README.md .github -type f 2>/dev/null | grep -v 'scripts/lint.mjs' | sort",
+  "find src worker/src scripts docs/index.html README.md .github -type f 2>/dev/null | grep -v 'scripts/lint.mjs' | sort",
 )
   .trim()
   .split('\n')

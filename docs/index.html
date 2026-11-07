@@ -193,8 +193,12 @@
               <ul class="prose-list mt-3">
                 <li>
                   <strong>General.</strong> Language (English / हिन्दी), shop name and phone (used on statements and
-                  reminders), SMS alerts on or off, automatic sync, sync interval, sync server URL and token, "ask
-                  before deleting", and the WhatsApp reminder template.
+                  reminders), SMS alerts on or off, automatic sync, sync interval, "ask before deleting", and the
+                  WhatsApp reminder template.
+                </li>
+                <li>
+                  <strong>No server setup.</strong> The sync server is built into the app and each install gets its
+                  own key on first launch, so there is no URL or token to paste anywhere.
                 </li>
                 <li>
                   <strong>One look, no theme options.</strong> The app is light-only with a single accent colour:
@@ -414,18 +418,23 @@
             The Worker is included in the repository. You deploy it to your own Cloudflare account, so the SMS credit
             and the data are yours.
           </p>
-          <pre class="code mt-6"><code># 1. create the database and the token store
+          <pre class="code mt-6"><code># 1. create the database and the key store
 npx wrangler d1 create khata
 npx wrangler kv namespace create AUTH
 # put the returned ids into worker/wrangler.toml, then:
 npx wrangler d1 execute khata --config worker/wrangler.toml --remote --file worker/schema.sql
-npx wrangler secret put SHOP_TOKEN --config worker/wrangler.toml
 npx wrangler deploy --config worker/wrangler.toml
 
-# 2. in the app: Settings > General
-#    Sync server URL = https://khata-api.&lt;your-subdomain&gt;.workers.dev
-#    Sync token      = the SHOP_TOKEN you just set</code></pre>
+# 2. put the Worker URL in khata.config.json and rebuild
+#    { "apiBase": "https://khata-api.&lt;your-subdomain&gt;.workers.dev" }
+npm run build
+#    That is the whole setup: the URL is compiled into the app, and each
+#    install mints its own key on first launch.</code></pre>
           <p class="mt-4 text-sm text-[color:var(--muted)]">
+            There is no shared token in the bundle and nothing to paste into the app: the Worker keys its token
+            store on the SHA-256 of the device key, and provisions a shop the first time a device writes.
+          </p>
+          <p class="mt-2 text-sm text-[color:var(--muted)]">
             For SMS set <span class="tag">SMS_PROVIDER</span> to <span class="tag">fast2sms</span> or
             <span class="tag">twilio</span> in <span class="tag">worker/wrangler.toml</span> and add the matching
             secrets. With <span class="tag">SMS_PROVIDER = "none"</span> no message is attempted and the API says so
@@ -443,9 +452,9 @@ npx wrangler deploy --config worker/wrangler.toml
           </p>
           <ul class="prose-list mt-4 max-w-3xl list-disc pl-5">
             <li>
-              <strong>One shared token, not multi-tenant accounts.</strong> The Worker maps a bearer token to a shop
-              id; it does not have sign-up, passwords or per-user roles. That is the next step if several people need
-              separate logins.
+              <strong>One key per install, no accounts.</strong> A phone's ledger is tied to the key it minted on
+              first launch, so a second phone starts a separate ledger. There is no sign-up, no password recovery and
+              no way yet to link two devices to one shop.
             </li>
             <li>
               <strong>No multi-device merge.</strong> Entries are append-only and idempotent, but if the same customer

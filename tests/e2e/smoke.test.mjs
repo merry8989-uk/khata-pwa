@@ -268,6 +268,19 @@ test('settings change the language and persist', async () => {
     'About',
   ]);
 
+  // No server or token fields: the Worker URL is baked into the build and the
+  // device mints its own key, so there is nothing for the shopkeeper to type.
+  const credentials = await page.evaluate(() => ({
+    urlField: Boolean(document.querySelector('#setting-api-base')),
+    tokenField: Boolean(document.querySelector('#setting-api-token')),
+    connection: document.querySelector('#setting-connection')?.textContent || '',
+    passwordInputs: document.querySelectorAll('input[type="password"]').length,
+  }));
+  assert.equal(credentials.urlField, false, 'the server URL field must be gone');
+  assert.equal(credentials.tokenField, false, 'the token field must be gone');
+  assert.equal(credentials.passwordInputs, 0, 'nothing in Settings asks for a secret');
+  assert.match(credentials.connection, /Cloud sync/);
+
   await page.evaluate(() => {
     const group = document.querySelector('[role="radiogroup"][aria-label="Language"]');
     const target = [...group.querySelectorAll('[role="radio"]')].find((node) => node.textContent === 'हिन्दी');

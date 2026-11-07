@@ -21,11 +21,17 @@ function response(body, status = 200) {
   };
 }
 
+// The server URL comes from the build (src/js/config.js) and the token is minted
+// on the device, so tests pass a config instead of seeding settings.
+const API = 'https://khata-api.test';
+
+async function testConfig() {
+  return readConfig({ apiBase: `${API}/` });
+}
+
 before(async () => {
   await db.wipeAll({ keepSettings: true });
   await db.clearSettings();
-  await db.setSetting('apiBase', 'https://khata-api.test/');
-  await db.setSetting('apiToken', 'test-token');
   await db.setSetting('autoSync', true);
   await db.setSetting('smsAlerts', true);
 });
@@ -54,12 +60,16 @@ async function seed() {
   });
 }
 
-test('readConfig trims the base URL and reports configuration state', async () => {
-  const config = await readConfig();
-  assert.equal(config.apiBase, 'https://khata-api.test');
-  assert.equal(config.apiToken, 'test-token');
+test('readConfig takes the baked server and mints one device token', async () => {
+  const config = await testConfig();
+  assert.equal(config.apiBase, API, 'the trailing slash is trimmed');
+  assert.match(config.apiToken, /^[A-Za-z0-9_-]{43}$/, 'a 256-bit device token');
   assert.equal(isConfigured(config), true);
-  assert.equal(isConfigured({ apiBase: '', apiToken: 'x' }), false);
+  assert.equal(isConfigured({ apiBase: '' }), false, 'no baked URL means local-only');
+
+  const again = await testConfig();
+  assert.equal(again.apiToken, config.apiToken, 'the token is reused, never regenerated');
+  assert.equal(await db.getSetting('deviceToken'), config.apiToken, 'it is kept on the device');
 });
 
 test('flush posts the queue with a bearer token and clears it on success', async () => {
@@ -75,14 +85,16 @@ test('flush posts the queue with a bearer token and clears it on success', async
     });
   };
 
-  const result = await flush({ fetchImpl });
+  const config = await testConfig();
+  const result = await flush({ fetchImpl, config });
   assert.equal(result.ok, true);
   assert.deepEqual(result.accepted, { customers: 1, transactions: 1, deletions: 0 });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'https://khata-api.test/api/sync');
   assert.equal(calls[0].init.method, 'POST');
-  assert.equal(calls[0].init.headers.authorization, 'Bearer test-token');
+  assert.equal(calls[0].init.headers.authorization, `Bearer ${config.apiToken}`);
+  assert.equal(calls[0].init.headers.authorization.includes('test-token'), false);
 
   const payload = JSON.parse(calls[0].init.body);
   assert.equal(payload.customers[0].id, CUSTOMER_ID);
@@ -90,7 +102,7 @@ test('flush posts the queue with a bearer token and clears it on success', async
   assert.equal(payload.sms_alerts, true);
 
   assert.equal((await db.pendingRows()).transactions.length, 0);
-  const second = await flush({ fetchImpl });
+  const second = await flush({ fetchImpl, config });
   assert.equal(second.skipped, 'empty');
   assert.equal(calls.length, 1, 'an empty queue must not call the network');
 });
@@ -110,9 +122,10 @@ test('a replayed batch cannot duplicate rows (ids are client generated)', async 
     seen.push(JSON.parse(init.body).transactions[0].id);
     return response({ accepted: { customers: [], transactions: [TX_ID], deletions: [] }, rejected: [] });
   };
-  await flush({ fetchImpl });
+  const config = await testConfig();
+  await flush({ fetchImpl, config });
   await db.putTransaction({ id: TX_ID, customer_id: CUSTOMER_ID, type: 'GIVEN', amount_paise: 50000, synced: false });
-  await flush({ fetchImpl });
+  await flush({ fetchImpl, config });
   assert.deepEqual(seen, [TX_ID, TX_ID], 'the same id is resent, and the server dedupes it');
 });
 
@@ -132,7 +145,8 @@ test('rejected rows are reported and removed from the queue', async () => {
       rejected: [{ kind: 'transaction', id: badId, errors: ['AMOUNT_INVALID'] }],
     });
 
-  const result = await flush({ fetchImpl });
+  const config = await testConfig();
+  const result = await flush({ fetchImpl, config });
   assert.equal(result.rejected.length, 1);
   const pending = await db.pendingRows();
   assert.equal(
@@ -145,7 +159,7 @@ test('rejected rows are reported and removed from the queue', async () => {
 test('a 401 is a non-retryable SyncError', async () => {
   await db.putTransaction({ id: '44444444-4444-4444-8444-444444444444', customer_id: CUSTOMER_ID, type: 'GOT', amount_paise: 100, synced: false });
   await assert.rejects(
-    () => flush({ fetchImpl: async () => response({ ok: false }, 401) }),
+    async () => flush({ fetchImpl: async () => response({ ok: false }, 401), config: await testConfig() }),
     (error) => {
       assert.ok(error instanceof SyncError);
       assert.equal(error.code, 'UNAUTHORIZED');
@@ -158,7 +172,7 @@ test('a 401 is a non-retryable SyncError', async () => {
 test('a 500 is a retryable SyncError and the queue survives', async () => {
   const pendingBefore = (await db.pendingRows()).transactions.length;
   await assert.rejects(
-    () => flush({ fetchImpl: async () => response({ ok: false }, 500) }),
+    async () => flush({ fetchImpl: async () => response({ ok: false }, 500), config: await testConfig() }),
     (error) => {
       assert.equal(error.retryable, true);
       return true;
@@ -169,11 +183,12 @@ test('a 500 is a retryable SyncError and the queue survives', async () => {
 
 test('a network failure is a retryable SyncError', async () => {
   await assert.rejects(
-    () =>
+    async () =>
       flush({
         fetchImpl: async () => {
           throw new Error('offline');
         },
+        config: await testConfig(),
       }),
     (error) => {
       assert.equal(error.code, 'NETWORK');
@@ -183,13 +198,12 @@ test('a network failure is a retryable SyncError', async () => {
   );
 });
 
-test('nothing is sent when sync is not configured', async () => {
-  await db.setSetting('apiBase', '');
+test('nothing is sent when the build has no server', async () => {
   const result = await flush({
     fetchImpl: async () => {
       throw new Error('should not be called');
     },
+    config: { apiBase: '', apiToken: 'irrelevant' },
   });
   assert.equal(result.skipped, 'not-configured');
-  await db.setSetting('apiBase', 'https://khata-api.test');
 });

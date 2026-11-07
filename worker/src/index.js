@@ -15,12 +15,19 @@
  * - Deletions are soft (deleted = 1) so a stale client cannot resurrect a row.
  * - SMS is claimed in sms_log with a UNIQUE(shop_id, transaction_id) key before the
  *   gateway call, so one entry can never produce two messages.
- * - Auth is a bearer token looked up in KV (token -> shop_id), with a single-shop
- *   fallback via the SHOP_TOKEN secret.
+ * - Auth is zero-configuration. The app mints a random 256-bit token on the device
+ *   and sends it as a bearer token; the Worker keys KV on its SHA-256, so the raw
+ *   token is never stored server-side. A token seen for the first time on a write
+ *   provisions its shop (shop id derived from the hash, so a race cannot create
+ *   two shops for one device). Nothing to paste into the app, no shared secret in
+ *   the public bundle.
+ * - The SHOP_TOKEN secret remains as an operator escape hatch (single shop, full
+ *   access) for curl and support work.
  */
 
-import { formatTransactionSms } from '../../shared/sms.js';
-import { validateSyncPayload } from '../../shared/validation.js';
+import { formatTransactionSms } from '../../src/js/shared/sms.js';
+import { hashToken, looksLikeDeviceToken } from '../../src/js/shared/token.js';
+import { validateSyncPayload } from '../../src/js/shared/validation.js';
 import { sendSms, smsStatus } from './sms.js';
 
 const VERSION = '1.0.0';
@@ -78,7 +85,11 @@ function constantTimeEqual(a, b) {
   return diff === 0;
 }
 
-async function authenticate(request, env) {
+/**
+ * Resolves the caller's shop from the device token.
+ * @param {{provision?: boolean}} options - writes may create a shop, reads may not.
+ */
+async function resolveShop(request, env, { provision = false } = {}) {
   const header = request.headers.get('authorization') || '';
   if (!header.toLowerCase().startsWith('bearer ')) {
     return { ok: false, status: 401, error: 'missing_token' };
@@ -86,28 +97,34 @@ async function authenticate(request, env) {
   const token = header.slice(7).trim();
   if (!token) return { ok: false, status: 401, error: 'missing_token' };
 
+  // Operator escape hatch: one token, one shop, for curl and support.
   if (env.SHOP_TOKEN && constantTimeEqual(token, env.SHOP_TOKEN)) {
-    return { ok: true, shopId: env.SHOP_ID || 'default' };
+    return { ok: true, shopId: env.SHOP_ID || 'default', provisioned: false, admin: true };
   }
-  if (env.AUTH) {
-    try {
-      const raw = await env.AUTH.get(`token:${token}`);
-      if (raw) {
-        let shopId = raw;
-        try {
-          const parsed = JSON.parse(raw);
-          shopId = parsed.shop_id || parsed.shopId || raw;
-        } catch {
-          /* plain string value */
-        }
-        if (shopId) return { ok: true, shopId: String(shopId) };
-      }
-    } catch (error) {
-      log('error', 'KV lookup failed', { error: error?.message });
-      return { ok: false, status: 503, error: 'auth_unavailable' };
-    }
+
+  if (!looksLikeDeviceToken(token)) {
+    return { ok: false, status: 401, error: 'invalid_token' };
   }
-  return { ok: false, status: 401, error: 'invalid_token' };
+  if (!env.AUTH) {
+    return { ok: false, status: 503, error: 'auth_unavailable' };
+  }
+
+  const hash = await hashToken(token);
+  const key = `shop:${hash}`;
+  // Deterministic from the hash: two racing first-writes converge on one shop.
+  const shopId = `shop_${hash.slice(0, 24)}`;
+
+  try {
+    const known = await env.AUTH.get(key);
+    if (known) return { ok: true, shopId: known, provisioned: false };
+    if (!provision) return { ok: false, status: 401, error: 'unknown_token' };
+    await env.AUTH.put(key, shopId);
+    log('info', 'Provisioned a new shop', { shopId });
+    return { ok: true, shopId, provisioned: true };
+  } catch (error) {
+    log('error', 'KV lookup failed', { error: error?.message });
+    return { ok: false, status: 503, error: 'auth_unavailable' };
+  }
 }
 
 function todayStartIso() {
@@ -348,6 +365,7 @@ async function handleSync(request, env, ctx, shopId, requestId) {
   return json({
     ok: true,
     request_id: requestId,
+    shop_id: shopId,
     server_time: new Date().toISOString(),
     accepted: {
       customers: accepted.customers.map((row) => row.id),
@@ -384,6 +402,31 @@ async function handleTransaction(request, env, ctx, shopId, requestId) {
     body: JSON.stringify(payload),
   });
   return handleSync(forwarded, env, ctx, shopId, requestId);
+}
+
+async function handleWhoami(env, shopId) {
+  let customers = 0;
+  let transactions = 0;
+  try {
+    const row = await env.DB.prepare(
+      `SELECT (SELECT COUNT(*) FROM customers WHERE shop_id = ? AND deleted = 0) AS customers,
+              (SELECT COUNT(*) FROM transactions WHERE shop_id = ? AND deleted = 0) AS transactions`,
+    )
+      .bind(shopId, shopId)
+      .first();
+    customers = Number(row?.customers || 0);
+    transactions = Number(row?.transactions || 0);
+  } catch (error) {
+    log('warn', 'whoami counts failed', { shopId, error: error?.message });
+  }
+  return json({
+    ok: true,
+    shop_id: shopId,
+    version: VERSION,
+    server_time: new Date().toISOString(),
+    counts: { customers, transactions },
+    sms: smsStatus(env),
+  });
 }
 
 async function handleCustomers(env, shopId) {
@@ -484,14 +527,25 @@ export default {
         return json({ ok: false, error: 'not_found' }, 404, cors);
       }
 
-      const auth = await authenticate(request, env);
+      // Writes may create a shop for a device the Worker has not seen before;
+      // reads may not, so a typo cannot silently create an empty shop.
+      const isWrite = request.method === 'POST';
+      const auth = await resolveShop(request, env, { provision: isWrite });
       if (!auth.ok) {
         log('warn', 'Auth rejected', { requestId, path: url.pathname, error: auth.error });
         return json({ ok: false, error: auth.error }, auth.status, cors);
       }
+      if (auth.provisioned) {
+        log('info', 'First write from a new device', { requestId, shopId: auth.shopId });
+      }
 
       const key = `${request.method} ${url.pathname}`;
       switch (key) {
+        case 'GET /api/whoami': {
+          const response = await handleWhoami(env, auth.shopId);
+          const body = await response.json();
+          return json(body, response.status, cors);
+        }
         case 'POST /api/sync': {
           const response = await handleSync(request, env, ctx, auth.shopId, requestId);
           const body = await response.json();

@@ -7,7 +7,7 @@ import {
   formatINR,
   paiseToInput,
   parseAmountToPaise,
-} from '../../shared/money.js';
+} from '../../src/js/shared/money.js';
 
 test('parses plain, comma and symbol input into paise', () => {
   assert.deepEqual(parseAmountToPaise('500'), { ok: true, paise: 50000 });

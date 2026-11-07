@@ -16,8 +16,6 @@ export const DEFAULTS = Object.freeze({
   smsAlerts: true,
   autoSync: true,
   syncIntervalSec: 60,
-  apiBase: '',
-  apiToken: '',
   shopName: '',
   shopPhone: '',
   confirmDelete: true,
@@ -78,9 +76,4 @@ export async function reset() {
   cache = { ...DEFAULTS };
   notify({ ...DEFAULTS });
   return current();
-}
-
-/** True when the app has enough configuration to talk to a Worker. */
-export function isSyncConfigured(settings = cache) {
-  return Boolean(String(settings.apiBase || '').trim() && String(settings.apiToken || '').trim());
 }

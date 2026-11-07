@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { formatReminderText, formatTransactionSms, gsmSegments, smsDate } from '../../shared/sms.js';
+import { formatReminderText, formatTransactionSms, gsmSegments, smsDate } from '../../src/js/shared/sms.js';
 
 // Local noon so the assertion does not depend on the machine's timezone.
 const NOON = new Date(2026, 10, 7, 12, 0, 0).toISOString();

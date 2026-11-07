@@ -1,0 +1,7 @@
+{
+  "_comment": "Deployment settings baked into the app at build time. The shopkeeper never types a server URL or token. apiBase is filled in by the release build once the Cloudflare Worker is deployed; an empty value means the app runs local-only (everything still works, nothing leaves the device).",
+  "apiBase": "",
+  "workerName": "khata-api",
+  "d1Database": "khata",
+  "kvNamespace": "AUTH"
+}

@@ -10,7 +10,7 @@ import {
   validateCustomer,
   validateSyncPayload,
   validateTransaction,
-} from '../../shared/validation.js';
+} from '../../src/js/shared/validation.js';
 
 const NOW = Date.parse('2026-11-07T10:00:00Z');
 const uuid = () => newId();

@@ -30,6 +30,10 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Test against a local-only bundle: the e2e suite must not depend on the
+          # live Worker being reachable from a CI runner.
+          KHATA_API_BASE: ''
 
       - name: End-to-end smoke test (headless Chrome)
         run: npm run test:e2e

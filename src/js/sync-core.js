@@ -8,7 +8,9 @@
  * safe; the response lists which ids it accepted.
  */
 
-import { allSettings, markSynced, pendingRows } from './db.js';
+import { allSettings, markSynced, pendingRows, setSetting } from './db.js';
+import { API_BASE } from './config.js';
+import { generateDeviceToken } from './shared/token.js';
 
 export const SYNC_TIMEOUT_MS = 15000;
 export const MAX_ATTEMPTS = 5;
@@ -23,21 +25,35 @@ export class SyncError extends Error {
   }
 }
 
-export async function readConfig() {
+/**
+ * The device token is minted once, on first use, and kept in the settings store.
+ * There is no token field in the UI: the shop is this device.
+ */
+export async function deviceToken() {
+  const stored = await allSettings();
+  if (typeof stored.deviceToken === 'string' && stored.deviceToken.length >= 32) {
+    return stored.deviceToken;
+  }
+  const token = generateDeviceToken();
+  await setSetting('deviceToken', token);
+  return token;
+}
+
+export async function readConfig({ apiBase = API_BASE } = {}) {
   const stored = await allSettings();
   return {
-    apiBase: String(stored.apiBase || '')
-      .trim()
-      .replace(/\/+$/, ''),
-    apiToken: String(stored.apiToken || '').trim(),
+    // Normalised here so the baked value and an explicit override behave alike.
+    apiBase: String(apiBase || '').trim().replace(/\/+$/, ''),
+    apiToken: await deviceToken(),
     autoSync: stored.autoSync !== false,
     smsAlerts: stored.smsAlerts !== false,
     shopName: String(stored.shopName || '').trim(),
   };
 }
 
+/** Cloud sync is configured by the build, not by the shopkeeper. */
 export function isConfigured(config) {
-  return Boolean(config?.apiBase && config?.apiToken);
+  return Boolean(config?.apiBase);
 }
 
 function timeoutSignal(ms) {
