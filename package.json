@@ -14,7 +14,8 @@
     "worker:dev": "wrangler dev --config worker/wrangler.toml",
     "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
     "worker:schema": "wrangler d1 execute khata --config worker/wrangler.toml --remote --file worker/schema.sql",
-    "android:debug": "cd android && gradle :app:assembleDebug"
+    "android:debug": "cd android && gradle :app:assembleDebug",
+    "config:set": "node scripts/set-server.mjs"
   },
   "dependencies": {
     "jspdf": "^4.2.1",
