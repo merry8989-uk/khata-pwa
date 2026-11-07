@@ -1841,6 +1841,30 @@ async function boot() {
 
   render();
 
+  // Automation/diagnostics handle: published as soon as the first screen exists so
+  // support sessions and the e2e suite never race the service-worker registration.
+  globalThis.Khata = {
+    version: APP_VERSION,
+    db,
+    settings,
+    state,
+    get engine() {
+      return engine;
+    },
+    api: {
+      reloadData,
+      render,
+      openCustomerSheet,
+      openTransactionSheet,
+      syncNow: (reason) => engine?.syncNow(reason),
+      statementBlob: (customer, transactions) =>
+        statementBlob(customer, transactions, { shopName: settings.get('shopName') }),
+      checkForUpdates,
+      exportLogs,
+      buildLogFile,
+    },
+  };
+
   engine = createSyncEngine({
     onChange: (next) => {
       state.sync = { status: next.status, pending: next.pending };
@@ -1863,26 +1887,6 @@ async function boot() {
     openCustomerSheet();
   }
 
-  // Automation/diagnostics handle: used by the e2e suite and by support sessions.
-  globalThis.Khata = {
-    version: APP_VERSION,
-    db,
-    settings,
-    state,
-    engine,
-    api: {
-      reloadData,
-      render,
-      openCustomerSheet,
-      openTransactionSheet,
-      syncNow: (reason) => engine?.syncNow(reason),
-      statementBlob: (customer, transactions) =>
-        statementBlob(customer, transactions, { shopName: settings.get('shopName') }),
-      checkForUpdates,
-      exportLogs,
-      buildLogFile,
-    },
-  };
 }
 
 // Attached before boot() awaits anything: navigation must work from the first
