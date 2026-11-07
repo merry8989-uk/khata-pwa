@@ -68,6 +68,11 @@ before(async () => {
   page = await browser.newPage();
   await page.setViewport({ width: 420, height: 900, deviceScaleFactor: 2 });
   page.on('pageerror', (error) => console.log('[pageerror]', error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' || message.type() === 'warning') {
+      console.log(`[console:${message.type()}]`, message.text().slice(0, 300));
+    }
+  });
   await page.goto(BASE, { waitUntil: 'networkidle2' });
   await page.waitForSelector('#main h1, #main .card', { timeout: 15000 });
 });
@@ -316,7 +321,20 @@ test('a customer can be deleted and the ledger empties', async () => {
   await page.goto(BASE, { waitUntil: 'networkidle2' });
   await page.waitForSelector('[data-customer-id]');
   await click('[data-customer-id]');
-  await page.waitForSelector('#ledger-gave');
+  await page.waitForFunction(() => location.hash.startsWith('#/c/'), { timeout: 10000 });
+  try {
+    await page.waitForSelector('#ledger-gave', { timeout: 10000 });
+  } catch (error) {
+    const dump = await page.evaluate(() => ({
+      hash: location.hash,
+      route: window.Khata?.state?.route,
+      customers: window.Khata?.state?.customers?.length,
+      loading: window.Khata?.state?.loading,
+      main: document.querySelector('#main')?.textContent?.slice(0, 200),
+    }));
+    console.log('[diagnostic]', JSON.stringify(dump));
+    throw error;
+  }
 
   await page.evaluate(() => {
     const button = [...document.querySelectorAll('button')].find((node) =>
