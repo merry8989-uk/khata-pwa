@@ -157,16 +157,20 @@ test('a second entry sends its own message, and the first is never resent', asyn
   assert.match(calls[1].body, /Rs\.200 Got/);
   assert.match(calls[1].body, /Net Balance: Rs\.300/);
 
+  // The radio verdict arrives asynchronously, so wait for both rows to be marked
+  // rather than reading the moment the message is handed over.
+  await page.waitForFunction(async () => {
+    const customers = await window.Khata.db.allCustomers();
+    const rows = await window.Khata.db.transactionsForCustomer(customers[0].id);
+    return rows.length === 2 && rows.every((row) => row.sms_status === 'sent');
+  }, { timeout: 15000 });
+
   const rows = await page.evaluate(async () => {
     const customers = await window.Khata.db.allCustomers();
     return window.Khata.db.transactionsForCustomer(customers[0].id);
   });
   assert.equal(rows.length, 2);
-  assert.deepEqual(
-    rows.map((row) => row.sms_status).sort(),
-    ['sent', 'sent'],
-    'both entries carry their own result',
-  );
+  assert.deepEqual(rows.map((row) => row.sms_status), ['sent', 'sent'], 'both entries carry their own result');
 });
 
 test('a failed verdict is shown on the entry instead of a silent success', async () => {
