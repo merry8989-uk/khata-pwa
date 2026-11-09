@@ -134,11 +134,26 @@
                   too, after a confirmation.
                 </li>
                 <li>
+                  <strong>Attachments on any entry.</strong> A photo of the goods, a bill, an order PDF or an Excel
+                  sheet can ride along with a payment: up to five files per entry, photos shrunk to 1600px so a
+                  phone full of bills still fits, PDFs and sheets kept byte for byte. Files never leave the device
+                  for the server - they travel in the backup instead.
+                </li>
+                <li>
+                  <strong>Backups that happen by themselves.</strong> The ledger is snapshotted on this device -
+                  weekly, monthly, or automatically when something changed - and the newest four are kept. Each
+                  snapshot is a zip holding the ledger and every attached file; on Android it is also written into
+                  Downloads, so it outlives the app.
+                </li>
+                <li>
                   <strong>Rent mode.</strong> Mark a customer as a tenant and the monthly rent is added by itself,
                   on the tenant's own date rather than the 1st: someone who moved in on the 20th is charged for
                   20th-to-19th, either at the end of each rented month or in advance, your choice. The ledger shows
                   the rent, the day the tenancy started, the next charge date and how many months have accrued, with
-                  a one-tap "Rent received" that prefills the payment.
+                  a one-tap "Rent received" that prefills the payment. A tenancy can also carry a monthly
+                  electricity share, a security deposit (tracked as money held, never as rent paid), a rent
+                  agreement you attach, and a notice period: ending it sets a real end date and charges the final
+                  month only for the days actually lived.
                 </li>
                 <li>
                   <strong>Free customer SMS.</strong> In the Android app, every entry texts the customer from your own
@@ -502,10 +517,10 @@ npm run build
               customers, one message per entry.
             </li>
             <li>
-              <strong>Rent is a running charge, not a lease.</strong> Khata adds one rent entry per month from the
-              move-in date and stops when you turn the rent off; it does not handle deposits, electricity splits,
-              rent agreements, notice periods or part-month pro-rating when someone leaves mid-month. Changing the
-              rent affects future months only - the months already charged keep their amount.
+              <strong>Rent is a running charge, not a lawyer.</strong> It covers monthly rent, an electricity share,
+              a deposit, an attached agreement, a notice period and part-month pro-rating. It does not generate a
+              legal agreement, split a metered bill by units, calculate interest on a late deposit, or handle
+              multiple tenants on one unit.
             </li>
             <li>
               <strong>No inventory, GST invoicing or billing.</strong> Khata is a credit ledger, not accounting

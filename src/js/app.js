@@ -44,7 +44,14 @@ import {
   withRunningBalance,
 } from './shared/ledger.js';
 import { formatReminderText } from './shared/sms.js';
-import { accrueRent, rentSummary } from './rent.js';
+import { accrueRent, noticeEndDate, rentSummary } from './rent.js';
+import {
+  ACCEPT_ATTRIBUTE,
+  ATTACHMENT_LIMITS,
+  formatBytes,
+  prepareAttachment,
+} from './attachments.js';
+import { BACKUP_INTERVALS, backupStatus, runScheduledBackup } from './backup.js';
 import {
   SMS_TONE,
   hasDeviceSms,
@@ -76,6 +83,8 @@ const state = {
   sync: { status: STATUS.ONLINE, pending: 0 },
   stats: { customers: 0, transactions: 0, logs: 0 },
   update: { checking: false, available: null, message: '' },
+  agreements: new Map(),
+  backup: null,
 };
 
 let engine = null;
@@ -125,6 +134,7 @@ async function reloadData() {
   state.customers = customers.sort((a, b) => String(a.name).localeCompare(String(b.name)));
   state.transactions = transactions;
   state.nets = netByCustomer(transactions);
+  await refreshAgreements();
   state.loading = false;
   return { customers: state.customers.length, transactions: transactions.length };
 }
@@ -495,7 +505,7 @@ function ledgerRow(tx, customer) {
       { class: 'min-w-0 flex-1' },
       el('p', { class: 'truncate text-sm font-semibold text-body', text: tx.note || (isGiven ? t('tx.gaveTitle') : t('tx.gotTitle')) }),
       el('p', { class: 'text-xs text-sub', text: formatDateTime(tx.occurred_at || tx.created_at) }),
-      el('div', { class: 'flex flex-wrap items-center gap-1' }, rentChip(tx), smsChip(tx)),
+      el('div', { class: 'flex flex-wrap items-center gap-1' }, rentChip(tx), attachmentChip(tx), smsChip(tx)),
     ),
     el(
       'div',
@@ -547,6 +557,7 @@ function renderCustomer(main) {
   );
 
   const rent = customer.rent ? rentSummary({ rent: customer.rent, transactions: entries }) : null;
+  const agreement = rent ? state.agreements.get(customer.id) || null : null;
   if (rent) {
     main.append(
       el(
@@ -578,11 +589,50 @@ function renderCustomer(main) {
           { class: 'mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-sub' },
           rent.next_due
             ? el('span', { id: 'rent-next-due', text: t('rent.nextDue', { date: formatDate(rent.next_due) }) })
-            : el('span', { text: t('rent.noNextDue') }),
+            : el('span', { id: 'rent-next-due', text: t('rent.noNextDue') }),
           el('span', { text: t('rent.charged', { count: rent.charged }) }),
+          el('span', { id: 'rent-billed', text: t('rent.billed', { amount: money(rent.billed) }) }),
           el('span', {
             text: rent.mode === 'advance' ? t('rent.modeAdvance') : t('rent.modeArrears'),
           }),
+        ),
+        el(
+          'div',
+          { class: 'mt-1.5 space-y-1 text-xs' },
+          rent.electricity_paise > 0
+            ? el('p', {
+                id: 'rent-electricity-line',
+                class: 'text-sub',
+                text: t('rent.electricityLine', { amount: money(rent.electricity_paise) }),
+              })
+            : null,
+          rent.deposit.agreed > 0 || rent.deposit.entries > 0
+            ? el('p', {
+                id: 'rent-deposit-line',
+                class: 'text-sub',
+                text: t('rent.depositLine', {
+                  held: money(rent.deposit.held),
+                  agreed: money(rent.deposit.agreed),
+                }),
+              })
+            : null,
+          rent.end_date
+            ? el('p', {
+                id: 'rent-end-line',
+                class: 'font-semibold text-due-600',
+                text: t('rent.endsOn', { date: formatDate(rent.end_date) }),
+              })
+            : null,
+          rent.notice_days > 0 && !rent.end_date
+            ? el('p', { class: 'text-sub', text: t('rent.noticeLine', { days: rent.notice_days }) })
+            : null,
+          rent.last_charged_paise && rent.last_charged_paise !== rent.amount_paise
+            ? el('p', {
+                class: 'text-sub',
+                text: t('rent.amountChanged', { last: money(rent.last_charged_paise) }),
+              })
+            : null,
+          agreement ? el('p', { id: 'rent-agreement-line', class: 'text-sub', text: t('rent.agreementAttached', { name: agreement.name }) }) : null,
         ),
         el(
           'div',
@@ -614,6 +664,34 @@ function renderCustomer(main) {
             },
             icon('edit', 'h-4 w-4'),
             el('span', { text: t('rent.edit') }),
+          ),
+        ),
+        el(
+          'div',
+          { class: 'mt-2 grid grid-cols-3 gap-2' },
+          el(
+            'button',
+            { type: 'button', class: 'btn-ghost px-2 py-2 text-[0.7rem]', id: 'rent-deposit', onclick: () => openDepositSheet(customer, rent) },
+            icon('shield', 'h-4 w-4'),
+            el('span', { text: t('rent.deposit') }),
+          ),
+          el(
+            'button',
+            { type: 'button', class: 'btn-ghost px-2 py-2 text-[0.7rem]', id: 'rent-agreement', onclick: () => addAgreement(customer) },
+            icon('pdf', 'h-4 w-4'),
+            el('span', { text: t('rent.agreement') }),
+          ),
+          el(
+            'button',
+            {
+              type: 'button',
+              class: `btn-ghost px-2 py-2 text-[0.7rem] ${rent.end_date ? 'opacity-50' : ''}`,
+              id: 'rent-end',
+              disabled: Boolean(rent.end_date),
+              onclick: () => endTenancy(customer, rent),
+            },
+            icon('close', 'h-4 w-4'),
+            el('span', { text: t('rent.endTenancy') }),
           ),
         ),
       ),
@@ -914,7 +992,8 @@ function actionRow(label, hint, buttonLabel, onAction, { danger = false, id } = 
 
 async function renderSettings(main) {
   const s = state.settings;
-  state.stats = await db.stats();
+  const [counts, files] = await Promise.all([db.stats(), db.attachmentStats()]);
+  state.stats = { ...counts, attachments: files.count, attachmentBytes: files.bytes };
   // Replace the loading placeholder with the real content in one go.
   clear(main);
 
@@ -997,10 +1076,53 @@ async function renderSettings(main) {
   );
 
   /* Data and backup */
+  const backup = state.backup || (await backupStatus());
+  state.backup = backup;
   main.append(
     sectionCard(
       t('settings.data'),
       [
+        segmented(
+          t('settings.backupInterval'),
+          [
+            { id: 'auto', label: t('settings.backupAuto') },
+            { id: 'weekly', label: t('settings.backupWeekly') },
+            { id: 'monthly', label: t('settings.backupMonthly') },
+            { id: 'off', label: t('settings.backupOff') },
+          ],
+          s.backupInterval,
+          async (value) => {
+            await updateSetting('backupInterval', value);
+            if (value !== 'off') await runBackupNow({ silent: true });
+            render();
+          },
+          { hint: t('settings.backupIntervalHint') },
+        ),
+        el(
+          'div',
+          { class: 'flex items-center justify-between gap-3 px-4 py-3', id: 'setting-backup-status' },
+          el(
+            'div',
+            { class: 'min-w-0' },
+            el('p', { class: 'text-sm font-semibold text-body', text: t('settings.lastBackup') }),
+            el('p', {
+              class: 'mt-0.5 text-[0.7rem] leading-snug text-sub',
+              text: backup.lastAt
+                ? t('settings.backupState', {
+                    date: formatDateTime(backup.lastAt),
+                    count: backup.count,
+                    size: backup.humanSize,
+                  })
+                : t('settings.backupNever'),
+            }),
+          ),
+          el('span', {
+            class: `chip shrink-0 ${backup.lastAt ? 'bg-paid-100 text-paid-700' : 'surface-muted text-sub'}`,
+            text: backup.lastAt ? t('settings.backupOk') : t('settings.backupNone'),
+          }),
+        ),
+        actionRow(t('settings.backupNow'), t('settings.backupNowHint'), t('settings.backupNow'), () =>
+          runBackupNow({ force: true }), { id: 'setting-backup-now' }),
         actionRow(t('settings.backup'), t('settings.backupHint'), t('settings.backup'), exportBackup, {
           id: 'setting-backup',
         }),
@@ -1013,10 +1135,12 @@ async function renderSettings(main) {
         }),
       ],
       {
-        description: t('settings.stats', {
+        description: t('settings.statsFull', {
           customers: state.stats.customers,
           transactions: state.stats.transactions,
           logs: state.stats.logs,
+          files: state.stats.attachments || 0,
+          size: formatBytes(state.stats.attachmentBytes || 0),
         }),
       },
     ),
@@ -1272,28 +1396,100 @@ function refreshSyncStatus() {
 
 /* ------------------------------------------------------------- data actions */
 
+let lastBackupRun = 0;
+
+/**
+ * Runs the scheduled backup if it is due (or now, if asked), records when it
+ * happened, and refreshes the Settings card.
+ */
+async function runScheduledBackupIfDue({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && now - lastBackupRun < 5 * 60 * 1000) return { ran: false, reason: 'checked_recently' };
+  lastBackupRun = now;
+
+  const result = await runScheduledBackup({
+    interval: state.settings.backupInterval || 'auto',
+    lastAt: state.settings.lastBackupAt || null,
+    changedAt: state.settings.lastChangeAt || null,
+    now: new Date(now),
+    force,
+  });
+
+  if (result.ran) {
+    await settings.updateMany({ lastBackupAt: new Date(now).toISOString(), lastChangeAt: null });
+    state.settings = settings.current();
+    state.backup = null;
+    logger.info('backup', 'Backup written', {
+      reason: result.reason,
+      size: result.size,
+      customers: result.customers,
+      transactions: result.transactions,
+      attachments: result.attachments,
+      savedToDevice: result.savedToDevice,
+    });
+  }
+  return result;
+}
+
+async function runBackupNow({ force = true, silent = false } = {}) {
+  try {
+    const result = await runScheduledBackupIfDue({ force });
+    if (!result.ran) {
+      if (!silent) toast(t('toast.backupSkipped'));
+      return result;
+    }
+    if (!silent) {
+      toast(
+        t('toast.backupDone', {
+          size: formatBytes(result.size),
+          files: result.attachments || 0,
+        }),
+        { tone: 'success' },
+      );
+    }
+    render();
+    return result;
+  } catch (error) {
+    logger.error('backup', 'Backup failed', { message: error?.message });
+    if (!silent) toast(t('errors.generic'), { tone: 'error' });
+    return { ran: false, reason: 'error' };
+  }
+}
+
 async function exportBackup() {
-  const backup = await db.exportAll();
+  const { blob, manifest, attachmentCount } = await db.exportBackupZip();
   const stamp = new Date().toISOString().slice(0, 10);
-  downloadText(JSON.stringify(backup, null, 2), `khata-backup-${stamp}.json`, 'application/json');
+  downloadBlob(blob, `khata-backup-${stamp}.zip`);
   toast(t('toast.backupSaved'), { tone: 'success' });
-  logger.info('data', 'Backup exported', { customers: backup.customers.length });
+  logger.info('data', 'Backup downloaded', {
+    customers: manifest.customers.length,
+    transactions: manifest.transactions.length,
+    attachments: attachmentCount,
+  });
 }
 
 function importBackup() {
-  const input = el('input', { type: 'file', accept: 'application/json,.json', class: 'hidden' });
+  const input = el('input', { type: 'file', accept: 'application/zip,.zip,application/json,.json', class: 'hidden' });
   document.body.append(input);
   input.addEventListener('change', async () => {
     const file = input.files?.[0];
     input.remove();
     if (!file) return;
     try {
-      const parsed = JSON.parse(await file.text());
-      const result = await db.importAll(parsed, { mode: 'merge' });
+      // A zip carries the attachments too; the older JSON files still restore.
+      const isZip = /zip$/i.test(file.type) || /\.zip$/i.test(file.name);
+      const result = isZip
+        ? await db.importBackupZip(new Uint8Array(await file.arrayBuffer()), { mode: 'merge' })
+        : await db.importAll(JSON.parse(await file.text()), { mode: 'merge' });
       await reloadData();
-      toast(t('toast.restored', { customers: result.customers, transactions: result.transactions }), {
-        tone: 'success',
-      });
+      toast(
+        t('toast.restored', {
+          customers: result.customers,
+          transactions: result.transactions,
+          files: result.attachments || 0,
+        }),
+        { tone: 'success' },
+      );
       logger.info('data', 'Backup restored', result);
       engine?.syncNow('restore');
       render();
@@ -1481,11 +1677,48 @@ function openCustomerSheet({ customer = null } = {}) {
   }
   paintMode();
 
+  const rentDepositInput = el('input', {
+    id: 'rent-deposit',
+    class: 'field tabular',
+    inputmode: 'decimal',
+    value: existingRent?.deposit_paise ? paiseToInput(existingRent.deposit_paise) : '',
+    placeholder: t('rent.optional'),
+    'aria-label': t('rent.deposit'),
+  });
+  const rentElectricityInput = el('input', {
+    id: 'rent-electricity',
+    class: 'field tabular',
+    inputmode: 'decimal',
+    value: existingRent?.electricity_paise ? paiseToInput(existingRent.electricity_paise) : '',
+    placeholder: t('rent.optional'),
+    'aria-label': t('rent.electricity'),
+  });
+  const rentNoticeInput = el('input', {
+    id: 'rent-notice',
+    class: 'field tabular',
+    inputmode: 'numeric',
+    value: existingRent?.notice_days ? String(existingRent.notice_days) : '',
+    placeholder: '0',
+    'aria-label': t('rent.notice'),
+  });
+
   const rentFields = el(
     'div',
     { class: 'mt-3 space-y-3', id: 'rent-fields' },
     el('div', {}, el('label', { class: 'label', for: 'rent-amount', text: t('rent.amount') }), rentAmountInput),
     el('div', {}, el('label', { class: 'label', for: 'rent-start', text: t('rent.startDate') }), rentStartInput),
+    el(
+      'div',
+      { class: 'grid grid-cols-2 gap-2' },
+      el('div', {}, el('label', { class: 'label', for: 'rent-deposit', text: t('rent.deposit') }), rentDepositInput),
+      el(
+        'div',
+        {},
+        el('label', { class: 'label', for: 'rent-electricity', text: t('rent.electricity') }),
+        rentElectricityInput,
+      ),
+    ),
+    el('div', {}, el('label', { class: 'label', for: 'rent-notice', text: t('rent.notice') }), rentNoticeInput),
     el(
       'div',
       {},
@@ -1572,12 +1805,18 @@ function openCustomerSheet({ customer = null } = {}) {
             const parsedRent = parseAmountToPaise(rentAmountInput.value);
             let rent = null;
             if (rentOn || existingRent) {
+              const deposit = parseAmountToPaise(rentDepositInput.value);
+              const electricity = parseAmountToPaise(rentElectricityInput.value);
               rent = {
                 active: rentOn,
                 amount_paise: parsedRent.ok ? parsedRent.paise : 0,
                 start_date: rentStartInput.value,
                 mode: rentMode,
+                deposit_paise: deposit.ok ? deposit.paise : 0,
+                electricity_paise: electricity.ok ? electricity.paise : 0,
+                notice_days: Math.max(0, Math.min(365, Math.round(Number(rentNoticeInput.value) || 0))),
                 end_date: existingRent?.end_date || null,
+                ended_at: existingRent?.ended_at || null,
                 skipped: existingRent?.skipped || [],
               };
             }
@@ -1682,10 +1921,171 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
   }
   paintToggle();
 
+  if (transaction?.id) {
+    db.attachmentsForTransaction(transaction.id)
+      .then((rows) => {
+        stored = rows;
+        renderAttachments();
+      })
+      .catch(() => {});
+  }
+
   const titleNode = el('span', {
     class: 'sr-only',
     text: currentType === TYPES.GIVEN ? t('tx.gaveTitle') : t('tx.gotTitle'),
   });
+
+  /* --- attachments --- */
+  const picked = []; // prepared files waiting to be stored with the entry
+  let stored = []; // already-saved files on this entry (edit mode)
+
+  const attachmentList = el('div', { class: 'mt-2 space-y-1.5', id: 'attachment-list' });
+  const attachInput = el('input', {
+    type: 'file',
+    multiple: true,
+    accept: ACCEPT_ATTRIBUTE,
+    class: 'hidden',
+    id: 'attachment-input',
+  });
+
+  function renderAttachments() {
+    clear(attachmentList);
+    const total = stored.length + picked.length;
+
+    for (const meta of stored) {
+      attachmentList.append(
+        el(
+          'div',
+          { class: 'flex items-center gap-2 rounded-lg border bordered px-2.5 py-2' },
+          el('span', { class: 'text-sub' }, icon('pdf', 'h-4 w-4')),
+          el(
+            'div',
+            { class: 'min-w-0 flex-1' },
+            el('p', { class: 'truncate text-xs font-semibold text-body', text: meta.name }),
+            el('p', { class: 'text-[0.65rem] text-sub', text: `${meta.kind} · ${formatBytes(meta.size)}` }),
+          ),
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'btn-ghost px-2 py-1 text-[0.65rem]',
+              onclick: () => openAttachment(meta.id),
+            },
+            t('attach.open'),
+          ),
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'icon-btn h-7 w-7 text-due-600',
+              'aria-label': t('attach.remove'),
+              onclick: async () => {
+                await db.deleteAttachment(meta.id);
+                stored = stored.filter((row) => row.id !== meta.id);
+                await refreshAttachmentCount(transaction?.id);
+                renderAttachments();
+                toast(t('attach.removed'));
+              },
+            },
+            icon('trash', 'h-3.5 w-3.5'),
+          ),
+        ),
+      );
+    }
+
+    picked.forEach((entry, index) => {
+      attachmentList.append(
+        el(
+          'div',
+          { class: 'flex items-center gap-2 rounded-lg border bordered px-2.5 py-2' },
+          entry.preview
+            ? el('img', {
+                src: entry.preview,
+                alt: '',
+                class: 'h-9 w-9 rounded object-cover',
+              })
+            : el('span', { class: 'text-sub' }, icon('pdf', 'h-4 w-4')),
+          el(
+            'div',
+            { class: 'min-w-0 flex-1' },
+            el('p', { class: 'truncate text-xs font-semibold text-body', text: entry.file.name }),
+            el('p', {
+              class: 'text-[0.65rem] text-sub',
+              text: `${entry.file.kind} · ${formatBytes(entry.file.size)} · ${t('attach.pending')}`,
+            }),
+          ),
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'icon-btn h-7 w-7 text-due-600',
+              'aria-label': t('attach.remove'),
+              onclick: () => {
+                if (entry.preview) URL.revokeObjectURL(entry.preview);
+                picked.splice(index, 1);
+                renderAttachments();
+              },
+            },
+            icon('close', 'h-3.5 w-3.5'),
+          ),
+        ),
+      );
+    });
+
+    attachButton.querySelector('span').textContent =
+      total >= ATTACHMENT_LIMITS.MAX_PER_ENTRY
+        ? t('attach.limit', { max: ATTACHMENT_LIMITS.MAX_PER_ENTRY })
+        : t('attach.add');
+    attachButton.disabled = total >= ATTACHMENT_LIMITS.MAX_PER_ENTRY;
+  }
+
+  attachInput.addEventListener('change', async () => {
+    const files = [...(attachInput.files || [])];
+    attachInput.value = '';
+    for (const file of files) {
+      if (stored.length + picked.length >= ATTACHMENT_LIMITS.MAX_PER_ENTRY) {
+        toast(t('attach.limit', { max: ATTACHMENT_LIMITS.MAX_PER_ENTRY }), { tone: 'error' });
+        break;
+      }
+      const prepared = await prepareAttachment(file);
+      if (!prepared.ok) {
+        toast(errorText(prepared.code), { tone: 'error' });
+        continue;
+      }
+      picked.push({
+        file: prepared.file,
+        preview: prepared.file.image ? URL.createObjectURL(prepared.file.blob) : null,
+      });
+    }
+    renderAttachments();
+  });
+
+  const attachButton = el(
+    'button',
+    {
+      type: 'button',
+      class: 'btn-ghost w-full justify-start text-xs',
+      id: 'attachment-add',
+      onclick: () => attachInput.click(),
+    },
+    icon('pdf', 'h-4 w-4'),
+    el('span', { text: t('attach.add') }),
+  );
+
+  const attachmentBlock = el(
+    'div',
+    { class: 'rounded-xl border bordered p-3' },
+    el(
+      'div',
+      { class: 'flex items-center justify-between gap-2' },
+      el('p', { class: 'text-sm font-semibold text-body', text: t('attach.title') }),
+      el('span', { class: 'text-[0.65rem] text-sub', text: t('attach.hint') }),
+    ),
+    attachmentList,
+    attachInput,
+    el('div', { class: 'mt-2' }, attachButton),
+  );
+  renderAttachments();
 
   const sheet = openSheet({
     title: customer.name,
@@ -1709,6 +2109,7 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
       ),
       el('div', {}, el('label', { class: 'label', for: 'tx-note', text: t('tx.note') }), noteInput),
       el('div', {}, el('label', { class: 'label', for: 'tx-date', text: t('tx.date') }), dateInput),
+      attachmentBlock,
       errorBox,
       transaction
         ? el(
@@ -1803,7 +2204,22 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
             }
 
             try {
-              await db.putTransaction({ ...result.value, synced: false });
+              for (const entry of picked) {
+                await db.putAttachment({
+                  id: newId(),
+                  transaction_id: result.value.id,
+                  customer_id: customer.id,
+                  name: entry.file.name,
+                  mime: entry.file.mime,
+                  kind: entry.file.kind,
+                  size: entry.file.size,
+                  blob: entry.file.blob,
+                });
+              }
+              const attachmentCount = stored.length + picked.length;
+              for (const entry of picked) if (entry.preview) URL.revokeObjectURL(entry.preview);
+              picked.length = 0;
+              await db.putTransaction({ ...result.value, synced: false, attachment_count: attachmentCount });
             } catch (error) {
               logger.error('transaction', 'Save failed', { message: error?.message });
               errorBox.textContent = t('errors.storage');
@@ -1813,6 +2229,8 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
             const saved = await db.getTransaction(result.value.id);
             await maybeSendEntrySms(customer, saved);
 
+            await settings.update('lastChangeAt', new Date().toISOString());
+            state.settings = settings.current();
             logger.info('transaction', 'Entry saved', {
               transactionId: result.value.id,
               type: result.value.type,
@@ -1938,6 +2356,234 @@ function smsChip(transaction) {
     class: 'chip mt-1 bg-due-100 text-[0.6rem] font-semibold text-due-700',
     title: transaction.sms_error || status,
     text: t('ledger.smsFailed'),
+  });
+}
+
+/* ------------------------------------------------------- tenancy actions */
+
+/** Deposit received / refunded. Money held, kept out of the rent balance story. */
+function openDepositSheet(customer, rent) {
+  const amountInput = el('input', {
+    id: 'deposit-amount',
+    class: 'field tabular',
+    inputmode: 'decimal',
+    value: paiseToInput(rent.deposit.held || rent.deposit.agreed || 0),
+    'aria-label': t('rent.depositAmount'),
+    'data-autofocus': '',
+  });
+  const errorBox = el('p', { class: 'min-h-[1rem] text-xs font-medium text-due-600', role: 'alert' });
+
+  const sheet = openSheet({
+    title: t('rent.deposit'),
+    subtitle: t('rent.depositHeld', {
+      held: money(rent.deposit.held),
+      agreed: money(rent.deposit.agreed),
+    }),
+    content: [
+      el('div', {}, el('label', { class: 'label', for: 'deposit-amount', text: t('rent.depositAmount') }), amountInput),
+      errorBox,
+    ],
+    footer: [
+      el(
+        'button',
+        {
+          type: 'button',
+          class: 'btn-ghost flex-1',
+          id: 'deposit-refund',
+          onclick: () => save('GIVEN'),
+        },
+        t('rent.depositRefund'),
+      ),
+      el(
+        'button',
+        {
+          type: 'button',
+          class: 'btn bg-paid-600 flex-1 text-white hover:bg-paid-700',
+          id: 'deposit-received',
+          onclick: () => save('GOT'),
+        },
+        t('rent.depositReceived'),
+      ),
+    ],
+  });
+
+  async function save(type) {
+    errorBox.textContent = '';
+    const parsed = parseAmountToPaise(amountInput.value);
+    if (!parsed.ok) {
+      amountInput.classList.add('field-invalid');
+      errorBox.textContent = errorText(parsed.code);
+      return;
+    }
+    const now = new Date().toISOString();
+    await db.putTransaction({
+      id: newId(),
+      customer_id: customer.id,
+      type,
+      amount_paise: parsed.paise,
+      note: type === 'GOT' ? t('rent.depositReceivedNote') : t('rent.depositRefundNote'),
+      occurred_at: now,
+      created_at: now,
+      synced: false,
+      source: 'deposit',
+    });
+    await reloadData();
+    sheet.close();
+    toast(t('toast.saved'), { tone: 'success' });
+    render();
+    engine?.syncNow('deposit');
+  }
+}
+
+/** Attaches a rent agreement (or any document) to the tenancy itself. */
+function addAgreement(customer) {
+  const input = el('input', { type: 'file', accept: ACCEPT_ATTRIBUTE, class: 'hidden' });
+  document.body.append(input);
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    input.remove();
+    if (!file) return;
+    const prepared = await prepareAttachment(file);
+    if (!prepared.ok) {
+      toast(errorText(prepared.code), { tone: 'error' });
+      return;
+    }
+    await db.putAttachment({
+      id: newId(),
+      transaction_id: null,
+      customer_id: customer.id,
+      name: prepared.file.name,
+      mime: prepared.file.mime,
+      kind: prepared.file.kind,
+      size: prepared.file.size,
+      blob: prepared.file.blob,
+    });
+    await refreshAgreements();
+    toast(t('rent.agreementAdded', { name: prepared.file.name }), { tone: 'success' });
+    render();
+  });
+  input.click();
+}
+
+async function refreshAgreements() {
+  const customers = state.customers.filter((row) => row.rent);
+  const map = new Map();
+  for (const customer of customers) {
+    const rows = await db.attachmentsForCustomer(customer.id);
+    if (rows.length) map.set(customer.id, rows[rows.length - 1]);
+  }
+  state.agreements = map;
+  return map;
+}
+
+/**
+ * Ends a tenancy. The notice period decides when it really ends, and the final
+ * month is charged only for the days lived.
+ */
+function endTenancy(customer, rent) {
+  const noticeInput = el('input', {
+    id: 'end-notice-date',
+    class: 'field',
+    type: 'date',
+    value: toDateInputValue(new Date().toISOString()),
+    'aria-label': t('rent.noticeGiven'),
+  });
+  const noticeDays = Number(rent.notice_days) || 0;
+  const preview = el('p', { class: 'mt-2 text-xs text-sub', id: 'end-preview' });
+
+  function paint() {
+    const endDate = noticeEndDate({ noticeDate: noticeInput.value, noticeDays });
+    preview.textContent = endDate
+      ? t('rent.endPreview', { date: formatDate(endDate), days: noticeDays })
+      : t('errors.RENT_START_INVALID');
+  }
+  noticeInput.addEventListener('change', paint);
+  paint();
+
+  const sheet = openSheet({
+    title: t('rent.endTenancy'),
+    subtitle: t('rent.endHint'),
+    content: [
+      el('div', {}, el('label', { class: 'label', for: 'end-notice-date', text: t('rent.noticeGiven') }), noticeInput),
+      preview,
+    ],
+    footer: [
+      el('button', { type: 'button', class: 'btn-ghost flex-1', onclick: () => sheet.close() }, t('common.cancel')),
+      el(
+        'button',
+        {
+          type: 'button',
+          class: 'btn bg-due-600 flex-1 text-white hover:bg-due-700',
+          id: 'end-confirm',
+          onclick: async () => {
+            const endDate = noticeEndDate({ noticeDate: noticeInput.value, noticeDays });
+            if (!endDate) return;
+            await db.putCustomer({
+              ...customer,
+              rent: { ...customer.rent, end_date: endDate, ended_at: new Date().toISOString() },
+              synced: false,
+            });
+            // Ending mid-month has to pro-rate the final charge, so re-run the pass.
+            await runRentAccrual({ force: true });
+            await reloadData();
+            sheet.close();
+            toast(t('rent.endedToast', { date: formatDate(endDate) }), { tone: 'success' });
+            render();
+            engine?.syncNow('tenancy');
+          },
+        },
+        t('rent.endConfirm'),
+      ),
+    ],
+  });
+}
+
+/* -------------------------------------------------------------- attachments */
+
+/** Opens a stored file: in a tab in the browser, or in Downloads in the app. */
+async function openAttachment(id) {
+  const row = await db.getAttachment(id);
+  if (!row?.blob) {
+    toast(t('attach.missing'), { tone: 'error' });
+    return;
+  }
+  const bridge = globalThis.KhataAndroid;
+  if (bridge && typeof bridge.saveFile === 'function') {
+    const bytes = new Uint8Array(await row.blob.arrayBuffer());
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    bridge.saveFile(row.name, row.mime || 'application/octet-stream', btoa(binary));
+    toast(t('attach.savedToDownloads', { name: row.name }));
+    return;
+  }
+  const url = URL.createObjectURL(row.blob);
+  const opened = window.open(url, '_blank', 'noopener');
+  if (!opened) {
+    downloadBlob(row.blob, row.name);
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+async function refreshAttachmentCount(transactionId) {
+  if (!transactionId) return;
+  const row = await db.getTransaction(transactionId);
+  if (!row) return;
+  const rows = await db.attachmentsForTransaction(transactionId);
+  await db.putTransaction({ ...row, attachment_count: rows.length });
+  await reloadData();
+  render();
+}
+
+/** A paperclip chip on a timeline row that carries files. */
+function attachmentChip(transaction) {
+  if (!transaction.attachment_count) return null;
+  return el('span', {
+    class: 'chip mt-1 surface-muted text-[0.6rem] font-semibold text-sub',
+    title: t('attach.count', { count: transaction.attachment_count }),
+    text: `📎 ${transaction.attachment_count}`,
   });
 }
 
@@ -2131,6 +2777,8 @@ async function boot() {
 
     await db.openDb();
     await runRentAccrual({ force: true });
+    // After the ledger settles, take the scheduled backup if one is due.
+    await runScheduledBackupIfDue().catch(() => {});
     logger.info('app', 'Boot', { version: APP_VERSION, language: state.settings.language });
     await reloadData();
   } catch (error) {

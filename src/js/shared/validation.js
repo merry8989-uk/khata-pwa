@@ -32,6 +32,7 @@ export const ERRORS = Object.freeze({
   RENT_INVALID: 'RENT_INVALID',
   RENT_AMOUNT_INVALID: 'RENT_AMOUNT_INVALID',
   RENT_START_INVALID: 'RENT_START_INVALID',
+  RENT_NOTICE_INVALID: 'RENT_NOTICE_INVALID',
 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -126,6 +127,15 @@ function validateRent(raw, { now }) {
     end = String(raw.end_date);
   }
 
+  const optionalAmount = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number) || number < 0) return 0;
+    return number > MAX_RENT_PAISE ? MAX_RENT_PAISE : Math.round(number);
+  };
+
+  const noticeDays = Math.round(Number(raw.notice_days) || 0);
+  if (noticeDays < 0 || noticeDays > 365) return { ok: false, code: ERRORS.RENT_NOTICE_INVALID };
+
   return {
     ok: true,
     value: {
@@ -134,7 +144,14 @@ function validateRent(raw, { now }) {
       start_date: String(raw.start_date),
       end_date: end,
       mode: raw.mode === 'advance' ? 'advance' : 'arrears',
-      skipped: Array.isArray(raw.skipped) ? raw.skipped.filter((key) => /^\d{4}-\d{2}$/.test(String(key))) : [],
+      // A deposit is money held; electricity is a monthly share. Both optional.
+      deposit_paise: optionalAmount(raw.deposit_paise),
+      electricity_paise: optionalAmount(raw.electricity_paise),
+      notice_days: noticeDays,
+      ended_at: raw.ended_at ? String(raw.ended_at) : null,
+      skipped: Array.isArray(raw.skipped)
+        ? raw.skipped.filter((key) => /^\d{4}-\d{2}(:e)?$/.test(String(key)))
+        : [],
     },
   };
 }

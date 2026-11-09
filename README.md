@@ -86,9 +86,10 @@ HTTPS, which is why the built output is served rather than opening the file dire
 
 ```bash
 npm run lint           # node --check on every file, i18n parity, content rules, precache list
-npm test               # 101 unit tests (node:test), including the Worker handler with D1/KV doubles
-npm run test:e2e       # 27 browser tests: 13 on the app alone, 4 against a real Worker handler,
-                       # 4 with the Android SMS bridge stubbed, 6 on rent accrual
+npm test               # 124 unit tests (node:test), including the Worker handler with D1/KV doubles
+npm run test:e2e       # 32 browser tests: 13 on the app alone, 4 against a real Worker handler,
+                       # 4 with the Android SMS bridge stubbed, 6 on rent accrual, 5 on
+                       # attachments, deposits, ending a tenancy and backups
 ```
 
 The e2e suite adds a customer, records udhar and jama, reloads to prove IndexedDB persistence,
@@ -245,6 +246,31 @@ Short months are clamped (a tenancy starting on the 31st charges on 28/29 Februa
 an end date stops charging after it, and changing the rent only affects months not yet charged.
 What it deliberately does not do: deposits, electricity splits, agreements, notice periods, or
 pro-rating a part month when someone leaves mid-month.
+
+## Attachments
+
+Any entry can carry up to five files: a photo of the goods, a bill, an order PDF, an Excel sheet.
+
+- Photos are shrunk to 1600px JPEG before storage (a 12 MP bill photo is 4-6 MB and unreadable
+  at that size anyway); PDFs and sheets are stored byte for byte. 12 MB per file.
+- Stored as blobs in IndexedDB beside the ledger, so they work offline and are deleted with the
+  entry or the customer they belong to.
+- **Never synced.** D1 is a ledger, not a file store; a 5 MB photo in a sync batch would be absurd.
+  Files are protected by the backup instead.
+- The timeline row shows a paperclip count; tapping it opens the entry, where each file can be
+  opened (a tab in the browser, Downloads in the Android app) or removed.
+- A rent agreement attaches to the tenancy itself rather than to an entry.
+
+## Automatic backups
+
+- Interval: **automatic** (default), **weekly**, **monthly** or **off**, in Settings.
+  Automatic backs up weekly, but only when the ledger changed since the last snapshot.
+- A backup is one zip: `manifest.json` plus every attachment as a real file, so it opens in any
+  file manager and restores here.
+- Snapshots live in the app's own storage; the newest four are kept and older ones pruned.
+- On Android the same zip is also written into Downloads, so it survives the app's storage being
+  cleared. In a browser that silent write is not possible, so use **Download backup**.
+- Restore accepts a `.zip` (ledger + files) or the older `.json` (ledger only).
 
 ## How the offline queue works
 

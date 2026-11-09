@@ -10,8 +10,11 @@
  * `deletions` store so the server does not resurrect the row on the next sync.
  */
 
+import { createZip } from './zip.js';
+import { readJsonEntry, readZip } from './zip-reader.js';
+
 export const DB_NAME = 'khata-db';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const STORE = Object.freeze({
   CUSTOMERS: 'customers',
@@ -19,6 +22,8 @@ export const STORE = Object.freeze({
   DELETIONS: 'deletions',
   LOGS: 'logs',
   SETTINGS: 'settings',
+  ATTACHMENTS: 'attachments',
+  BACKUPS: 'backups',
 });
 
 const LOG_LIMIT = 2000;
@@ -49,6 +54,15 @@ function upgrade(db) {
   }
   if (!db.objectStoreNames.contains(STORE.SETTINGS)) {
     db.createObjectStore(STORE.SETTINGS, { keyPath: 'key' });
+  }
+  if (!db.objectStoreNames.contains(STORE.ATTACHMENTS)) {
+    const attachments = db.createObjectStore(STORE.ATTACHMENTS, { keyPath: 'id' });
+    attachments.createIndex('by_transaction', 'transaction_id', { unique: false });
+    attachments.createIndex('by_customer', 'customer_id', { unique: false });
+  }
+  if (!db.objectStoreNames.contains(STORE.BACKUPS)) {
+    const backups = db.createObjectStore(STORE.BACKUPS, { keyPath: 'id' });
+    backups.createIndex('by_created', 'created_at', { unique: false });
   }
 }
 
@@ -149,6 +163,7 @@ export async function countCustomers() {
  * server may already know about.
  */
 export async function deleteCustomer(id) {
+  await deleteAttachmentsForCustomer(id);
   const db = await openDb();
   const transaction = db.transaction([STORE.CUSTOMERS, STORE.TRANSACTIONS, STORE.DELETIONS], 'readwrite');
   const customers = transaction.objectStore(STORE.CUSTOMERS);
@@ -203,7 +218,9 @@ export async function putTransaction(transaction) {
     // show whether the message actually left the phone.
     // 'rent' marks a charge the rent engine wrote, so the ledger can label it and
     // a deleted month is not recreated on the next pass.
+    attachment_count: Number(transaction.attachment_count) || 0,
     source: transaction.source || 'manual',
+    charge_kind: transaction.charge_kind || null,
     rent_cycle: transaction.rent_cycle || null,
     sms_status: transaction.sms_status || null,
     sms_at: transaction.sms_at || null,
@@ -228,6 +245,7 @@ export async function allTransactions() {
 }
 
 export async function deleteTransaction(id) {
+  await deleteAttachmentsForTransaction(id);
   const db = await openDb();
   const transaction = db.transaction([STORE.TRANSACTIONS, STORE.DELETIONS], 'readwrite');
   const transactions = transaction.objectStore(STORE.TRANSACTIONS);
@@ -285,6 +303,86 @@ export async function markSynced({ customerIds = [], transactionIds = [], deleti
     deletions.delete(key);
   }
   await done(transaction);
+}
+
+/* --------------------------------------------------------------- attachments */
+
+/**
+ * Files live beside the ledger, never in it: the sync payload stays small and the
+ * Worker stays a ledger. `blob` is stored as-is, which IndexedDB handles natively.
+ */
+export async function putAttachment(attachment) {
+  const row = {
+    id: attachment.id,
+    transaction_id: attachment.transaction_id,
+    customer_id: attachment.customer_id || null,
+    name: attachment.name,
+    mime: attachment.mime,
+    kind: attachment.kind || 'File',
+    size: Number(attachment.size) || 0,
+    created_at: attachment.created_at || new Date().toISOString(),
+    blob: attachment.blob,
+  };
+  await withStore(STORE.ATTACHMENTS, 'readwrite', (store) => req(store.put(row)));
+  return row;
+}
+
+export async function getAttachment(id) {
+  return withStore(STORE.ATTACHMENTS, 'readonly', (store) => req(store.get(id)));
+}
+
+/** Metadata only - the blobs are left in the database until someone opens one. */
+export async function attachmentsForTransaction(transactionId) {
+  const rows = await withStore(STORE.ATTACHMENTS, 'readonly', (store) =>
+    req(store.index('by_transaction').getAll(transactionId)),
+  );
+  return rows
+    .map(({ blob, ...meta }) => meta)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+}
+
+export async function deleteAttachment(id) {
+  await withStore(STORE.ATTACHMENTS, 'readwrite', (store) => req(store.delete(id)));
+}
+
+async function deleteAttachmentsWhere(store, indexName, value) {
+  const rows = await req(store.index(indexName).getAllKeys(value));
+  for (const key of rows) store.delete(key);
+  return rows.length;
+}
+
+/** Removes every file belonging to an entry (called when the entry goes). */
+export async function deleteAttachmentsForTransaction(transactionId) {
+  const db = await openDb();
+  const transaction = db.transaction(STORE.ATTACHMENTS, 'readwrite');
+  const count = await deleteAttachmentsWhere(transaction.objectStore(STORE.ATTACHMENTS), 'by_transaction', transactionId);
+  await done(transaction);
+  return count;
+}
+
+async function deleteAttachmentsForCustomer(customerId) {
+  const db = await openDb();
+  const transaction = db.transaction(STORE.ATTACHMENTS, 'readwrite');
+  const count = await deleteAttachmentsWhere(transaction.objectStore(STORE.ATTACHMENTS), 'by_customer', customerId);
+  await done(transaction);
+  return count;
+}
+
+/** Files attached to the customer itself - a rent agreement, for example. */
+export async function attachmentsForCustomer(customerId) {
+  const rows = await withStore(STORE.ATTACHMENTS, 'readonly', (store) =>
+    req(store.index('by_customer').getAll(customerId)),
+  );
+  return rows
+    .filter((row) => !row.transaction_id)
+    .map(({ blob, ...meta }) => meta)
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+}
+
+/** Total files and bytes, for the Settings screen. */
+export async function attachmentStats() {
+  const rows = await withStore(STORE.ATTACHMENTS, 'readonly', (store) => req(store.getAll()));
+  return { count: rows.length, bytes: rows.reduce((sum, row) => sum + (Number(row.size) || 0), 0) };
 }
 
 /* ---------------------------------------------------------------------- logs */
@@ -405,9 +503,115 @@ export async function importAll(backup, { mode = 'merge' } = {}) {
   return { customers, transactions };
 }
 
+/**
+ * A complete backup as one zip: manifest.json (customers, transactions, settings)
+ * plus every attachment as a real file. Opens in any file manager, and can be
+ * restored here.
+ */
+export async function exportBackupZip({ now = new Date() } = {}) {
+  const manifest = await exportAll();
+  const attachments = await withStore(STORE.ATTACHMENTS, 'readonly', (store) => req(store.getAll()));
+
+  const files = [
+    {
+      name: 'manifest.json',
+      data: JSON.stringify(
+        {
+          ...manifest,
+          format: 'khata-backup-zip',
+          attachments: attachments.map(({ blob, ...meta }) => meta),
+        },
+        null,
+        2,
+      ),
+    },
+  ];
+
+  for (const attachment of attachments) {
+    const bytes = new Uint8Array(await attachment.blob.arrayBuffer());
+    files.push({ name: `attachments/${attachment.id}-${attachment.name}`, data: bytes });
+  }
+
+  return { blob: createZip(files), manifest, attachmentCount: attachments.length };
+}
+
+/**
+ * Restores a zip backup (or the older JSON one).
+ * @returns {Promise<{customers: number, transactions: number, attachments: number}>}
+ */
+export async function importBackupZip(input, { mode = 'merge' } = {}) {
+  const files = readZip(input);
+  const manifest = readJsonEntry(files, 'manifest.json');
+  if (!manifest || !Array.isArray(manifest.customers)) throw new Error('Not a Khata backup');
+
+  const result = await importAll({ ...manifest, format: 'khata-backup' }, { mode });
+
+  let attachments = 0;
+  for (const meta of manifest.attachments || []) {
+    if (!meta?.id) continue;
+    if (mode === 'merge' && (await getAttachment(meta.id))) continue;
+    const entry = files.get(`attachments/${meta.id}-${meta.name}`);
+    if (!entry) continue;
+    await putAttachment({
+      ...meta,
+      blob: new Blob([entry], { type: meta.mime || 'application/octet-stream' }),
+    });
+    attachments += 1;
+  }
+
+  return { ...result, attachments };
+}
+
+/* ------------------------------------------------------------------ backups */
+
+/**
+ * Keeps the newest `keep` snapshots and drops the rest. Snapshots are zips, so a
+ * backup can be handed to someone or pulled off the phone later.
+ */
+export async function saveBackupSnapshot({ blob, kind = 'auto', meta = {}, keep = 4, now = new Date() } = {}) {
+  const row = {
+    id: `${now.toISOString()}-${Math.random().toString(36).slice(2, 8)}`,
+    created_at: now.toISOString(),
+    kind,
+    size: blob?.size || 0,
+    meta,
+    blob,
+  };
+  await withStore(STORE.BACKUPS, 'readwrite', (store) => req(store.put(row)));
+
+  const all = await listBackups();
+  const excess = all.slice(keep);
+  for (const old of excess) await deleteBackup(old.id);
+  return { row, pruned: excess.length };
+}
+
+export async function listBackups() {
+  const rows = await withStore(STORE.BACKUPS, 'readonly', (store) => req(store.getAll()));
+  return rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+}
+
+export async function getBackup(id) {
+  return withStore(STORE.BACKUPS, 'readonly', (store) => req(store.get(id)));
+}
+
+export async function deleteBackup(id) {
+  await withStore(STORE.BACKUPS, 'readwrite', (store) => req(store.delete(id)));
+}
+
+export async function backupStats() {
+  const rows = await listBackups();
+  return {
+    count: rows.length,
+    bytes: rows.reduce((sum, row) => sum + (Number(row.size) || 0), 0),
+    lastAt: rows[0]?.created_at || null,
+  };
+}
+
 /** Removes all ledger data. Settings survive unless `keepSettings` is false. */
 export async function wipeAll({ keepSettings = true } = {}) {
-  const stores = [STORE.CUSTOMERS, STORE.TRANSACTIONS, STORE.DELETIONS];
+  // Attachments go with the ledger they belong to. Backup snapshots stay: they are
+  // the way back.
+  const stores = [STORE.CUSTOMERS, STORE.TRANSACTIONS, STORE.DELETIONS, STORE.ATTACHMENTS];
   const db = await openDb();
   const transaction = db.transaction(stores, 'readwrite');
   for (const name of stores) transaction.objectStore(name).clear();

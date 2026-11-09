@@ -243,3 +243,145 @@ test('accrueRent ignores customers who are not renting', async () => {
   const result = await accrueRent({ db, now: noon(2027, 1, 19) });
   assert.deepEqual(result, { created: 0, customers: 0 });
 });
+
+/* ---------------------------------------------------------------------------
+ * A tenancy is more than rent: electricity, a deposit, notice, pro-rating.
+ * ------------------------------------------------------------------------- */
+
+import { CHARGE_KINDS, depositHeld, noticeEndDate } from '../../src/js/rent.js';
+
+test('an electricity share is charged with the rent, month by month', async () => {
+  const store = new Map();
+  const db = {
+    async allCustomers() {
+      return [{ id: 'c1', name: 'Rakesh', rent: rentOf({ electricity_paise: 80000 }) }];
+    },
+    async transactionsForCustomer() {
+      return [...store.values()];
+    },
+    async getTransaction(id) {
+      return store.get(id);
+    },
+    async putTransaction(row) {
+      store.set(row.id, row);
+      return row;
+    },
+  };
+
+  const result = await accrueRent({ db, now: noon(2027, 1, 19) });
+  assert.equal(result.created, 6, 'three months of rent and three of electricity');
+
+  const rent = [...store.values()].filter((row) => row.charge_kind === CHARGE_KINDS.RENT);
+  const electricity = [...store.values()].filter((row) => row.charge_kind === CHARGE_KINDS.ELECTRICITY);
+  assert.equal(rent.length, 3);
+  assert.equal(electricity.length, 3);
+  assert.deepEqual(
+    electricity.map((row) => row.note),
+    ['Electricity - Oct 2026', 'Electricity - Nov 2026', 'Electricity - Dec 2026'],
+  );
+  assert.ok(electricity.every((row) => row.amount_paise === 80000 && row.rent_cycle));
+  assert.equal(new Set([...store.values()].map((row) => row.rent_cycle)).size, 3, 'both charges share the month key');
+});
+
+test('deleting only the electricity charge leaves the rent alone', async () => {
+  const store = new Map();
+  const db = {
+    async allCustomers() {
+      return [{ id: 'c1', name: 'Rakesh', rent: rentOf({ electricity_paise: 80000, skipped: ['2026-10:e'] }) }];
+    },
+    async transactionsForCustomer() {
+      return [...store.values()];
+    },
+    async getTransaction(id) {
+      return store.get(id);
+    },
+    async putTransaction(row) {
+      store.set(row.id, row);
+      return row;
+    },
+  };
+  await accrueRent({ db, now: noon(2027, 1, 19) });
+  const rows = [...store.values()];
+  assert.equal(rows.filter((row) => row.rent_cycle === '2026-10' && row.charge_kind === CHARGE_KINDS.RENT).length, 1);
+  assert.equal(rows.filter((row) => row.rent_cycle === '2026-10' && row.charge_kind === CHARGE_KINDS.ELECTRICITY).length, 0);
+  assert.equal(rows.filter((row) => row.charge_kind === CHARGE_KINDS.ELECTRICITY).length, 2, 'the other two months still charge');
+});
+
+test('a tenant who leaves mid-month is charged only for the days lived', () => {
+  // Rented from the 20th; leaves on the 5th of the following month, so the last
+  // month is 20th -> 5th: 16 days out of 31 (Nov has 30 days, cycle is 20 Oct-19 Nov).
+  const rent = rentOf({ end_date: '2026-11-05' });
+  const cycles = rentCycles({ rent, until: noon(2027, 6, 1) });
+  assert.equal(cycles.length, 1, 'one part-month, nothing after it');
+  const only = cycles[0];
+  assert.equal(only.key, '2026-10');
+  assert.equal(only.truncated, true);
+  assert.equal(only.from, '2026-10-20');
+  assert.equal(only.to, '2026-11-05');
+  assert.equal(only.days, 17, '20 Oct to 5 Nov inclusive');
+  assert.equal(only.days_in_cycle, 31, '20 Oct to 19 Nov inclusive');
+  assert.equal(only.amount_paise, Math.round(500000 * (17 / 31)));
+  assert.equal(only.due_date, '2026-11-05', 'due the day they leave');
+  assert.ok(only.amount_paise < 500000, 'a part month costs less than a full one');
+});
+
+test('a tenancy that ends on the last day of a month is charged in full', () => {
+  const rent = rentOf({ end_date: '2026-11-19' });
+  const cycles = rentCycles({ rent, until: noon(2027, 6, 1) });
+  assert.equal(cycles.length, 1);
+  assert.equal(cycles[0].truncated, false);
+  assert.equal(cycles[0].amount_paise, 500000);
+});
+
+test('electricity is pro-rated with the rent', () => {
+  const rent = rentOf({ end_date: '2026-11-05', electricity_paise: 310000 });
+  const [only] = rentCycles({ rent, until: noon(2027, 6, 1) });
+  assert.equal(only.electricity_paise, Math.round(310000 * (17 / 31)));
+});
+
+test('a notice period turns into a real end date', () => {
+  assert.equal(noticeEndDate({ noticeDate: '2026-11-10', noticeDays: 30 }), '2026-12-10');
+  assert.equal(noticeEndDate({ noticeDate: '2026-11-10', noticeDays: 0 }), '2026-11-10');
+  assert.equal(noticeEndDate({ noticeDate: '2026-01-31', noticeDays: 30 }), '2026-03-02');
+  assert.equal(noticeEndDate({ noticeDate: 'nonsense', noticeDays: 30 }), null);
+});
+
+test('ending with notice stops the accrual after the notice period', () => {
+  const endDate = noticeEndDate({ noticeDate: '2026-11-10', noticeDays: 30 });
+  const rent = rentOf({ end_date: endDate, notice_days: 30 });
+  const cycles = rentCycles({ rent, until: noon(2027, 6, 1) });
+  assert.deepEqual(cycles.map((cycle) => cycle.key), ['2026-10', '2026-11']);
+  assert.equal(cycles[1].truncated, true, 'the December month is cut short by the notice');
+  assert.equal(cycles[1].to, '2026-12-10');
+});
+
+test('the deposit is tracked as money held, never as rent paid', () => {
+  const transactions = [
+    { id: 'd1', source: 'deposit', type: 'GOT', amount_paise: 2000000 },
+    { id: 'd2', source: 'deposit', type: 'GIVEN', amount_paise: 500000 },
+    { id: 'r1', source: 'rent', type: 'GIVEN', amount_paise: 500000 },
+    { id: 'm1', source: 'manual', type: 'GOT', amount_paise: 500000 },
+  ];
+  const deposit = depositHeld({ rent: rentOf({ deposit_paise: 2000000 }), transactions });
+  assert.deepEqual(deposit, { agreed: 2000000, received: 2000000, refunded: 500000, held: 1500000, entries: 2 });
+});
+
+test('the summary carries the deposit, electricity and the ended state', () => {
+  const summary = rentSummary({
+    rent: rentOf({ deposit_paise: 2000000, electricity_paise: 80000, end_date: '2026-11-05', notice_days: 15 }),
+    transactions: [
+      { id: 'r1', source: 'rent', charge_kind: 'rent', rent_cycle: '2026-10', amount_paise: 274194, occurred_at: '2026-11-05T06:30:00.000Z' },
+      { id: 'e1', source: 'rent', charge_kind: 'electricity', rent_cycle: '2026-10', amount_paise: 43871, occurred_at: '2026-11-05T06:30:00.000Z' },
+      { id: 'd1', source: 'deposit', type: 'GOT', amount_paise: 2000000 },
+    ],
+    now: noon(2026, 11, 20),
+  });
+  assert.equal(summary.charged, 1, 'electricity is not counted as a rent month');
+  assert.equal(summary.deposit.held, 2000000);
+  assert.equal(summary.electricity_paise, 80000);
+  assert.equal(summary.ended, true);
+  assert.equal(summary.end_date, '2026-11-05');
+  assert.equal(summary.notice_days, 15);
+  assert.equal(summary.next_due, null, 'nothing more is due once the tenancy ends');
+  assert.equal(summary.last_charged_paise, 274194);
+});

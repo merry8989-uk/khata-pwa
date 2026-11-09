@@ -20,6 +20,10 @@ export const DEFAULTS = Object.freeze({
   shopPhone: '',
   confirmDelete: true,
   logging: true,
+  // 'auto' backs up weekly, but only when the ledger changed since the last one.
+  backupInterval: 'auto',
+  lastBackupAt: null,
+  lastChangeAt: null,
   whatsappTemplate: DEFAULT_REMINDER,
 });
 
