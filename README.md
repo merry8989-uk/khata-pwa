@@ -86,9 +86,9 @@ HTTPS, which is why the built output is served rather than opening the file dire
 
 ```bash
 npm run lint           # node --check on every file, i18n parity, content rules, precache list
-npm test               # 83 unit tests (node:test), including the Worker handler with D1/KV doubles
-npm run test:e2e       # 21 browser tests: 13 on the app alone, 4 against a real Worker handler,
-                       # 4 with the Android SMS bridge stubbed
+npm test               # 101 unit tests (node:test), including the Worker handler with D1/KV doubles
+npm run test:e2e       # 27 browser tests: 13 on the app alone, 4 against a real Worker handler,
+                       # 4 with the Android SMS bridge stubbed, 6 on rent accrual
 ```
 
 The e2e suite adds a customer, records udhar and jama, reloads to prove IndexedDB persistence,
@@ -219,6 +219,32 @@ curl -X POST https://khata-api.<subdomain>.workers.dev/api/sms/retry \
 
 With `SMS_PROVIDER = "none"` the API responds `sms: {enabled: false, note: "sms_disabled"}`
 and sends nothing.
+
+## Rent mode
+
+A tenant does not follow the calendar. Someone who moves in on the 20th rents "20th to 19th" and
+usually pays on the 19th for the month that just finished, so rent is anchored on the move-in day.
+
+- **Turn it on per customer**: rent toggle, monthly amount, the day they moved in, and whether the
+  charge lands **at month end** (arrears, the default - charged the day before the next anniversary)
+  or **in advance** (on the anniversary itself).
+- **It accrues by itself.** Every pass adds the months that have come due: at launch, when the app
+  returns to the foreground, and after a tenancy is edited. Turning the rent off stops it and keeps
+  the history.
+- **Charges are normal entries**, so balances, statements, search and sync need no special cases.
+  They are labelled `RENT`, are never texted to the tenant, and still queue for the server.
+- **Idempotent.** Each charge's id is derived from the customer and the month, so a reload, a second
+  tab or a double run cannot charge a month twice.
+- **Deleting a charge sticks.** The month is remembered in `rent.skipped`, otherwise the next pass
+  would put it back.
+- **The card** shows the rent, the move-in date, the day the month runs on, the next due date and how
+  many months have accrued, plus a one-tap **Rent received** that prefills the payment at the rent
+  amount.
+
+Short months are clamped (a tenancy starting on the 31st charges on 28/29 February), a tenancy with
+an end date stops charging after it, and changing the rent only affects months not yet charged.
+What it deliberately does not do: deposits, electricity splits, agreements, notice periods, or
+pro-rating a part month when someone leaves mid-month.
 
 ## How the offline queue works
 

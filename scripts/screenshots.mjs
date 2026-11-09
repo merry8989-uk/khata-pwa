@@ -131,6 +131,37 @@ await new Promise((resolve) => setTimeout(resolve, 400));
 await page.screenshot({ path: join(OUT, 'entry-sheet.png') });
 await page.keyboard.press('Escape');
 
+// Rent: a tenant whose months accrue on their own date
+await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle2' });
+await page.evaluate(async () => {
+  const { db, settings, api } = window.Khata;
+  await settings.update('shopName', 'Gupta Kirana Store');
+  const start = new Date();
+  start.setMonth(start.getMonth() - 4);
+  start.setDate(20);
+  const iso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-20`;
+  await db.putCustomer({
+    id: '77777777-7777-4777-8777-777777777777',
+    name: 'Rakesh Verma',
+    phone_number: '+919812345678',
+    created_at: new Date().toISOString(),
+    synced: true,
+    rent: { active: true, amount_paise: 850000, start_date: iso, mode: 'arrears', end_date: null, skipped: [] },
+  });
+  await api.reloadData();
+  api.render();
+});
+await page.reload({ waitUntil: 'networkidle2' });
+await page.waitForSelector('[data-customer-id]');
+await page.evaluate(() => {
+  const rows = [...document.querySelectorAll('[data-customer-id]')];
+  const rent = rows.find((node) => node.textContent.includes('Rakesh Verma'));
+  rent.click();
+});
+await page.waitForSelector('#rent-card');
+await new Promise((resolve) => setTimeout(resolve, 500));
+await page.screenshot({ path: join(OUT, 'rent.png') });
+
 // Settings, captured as the Android shell sees it so the SMS rows are real.
 await page.evaluateOnNewDocument(() => {
   window.KhataAndroid = {

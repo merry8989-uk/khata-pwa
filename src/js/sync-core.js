@@ -75,6 +75,7 @@ function toCustomer(row) {
     phone_number: row.phone_number || null,
     created_at: row.created_at,
     updated_at: row.updated_at || row.created_at,
+    rent: row.rent || null,
   };
 }
 
@@ -87,6 +88,8 @@ function toTransaction(row) {
     note: row.note || '',
     occurred_at: row.occurred_at,
     created_at: row.created_at,
+    source: row.source === 'rent' ? 'rent' : 'manual',
+    rent_cycle: row.rent_cycle || null,
   };
 }
 

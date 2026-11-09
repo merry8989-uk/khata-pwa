@@ -13,6 +13,9 @@ export const LIMITS = Object.freeze({
   PHONE_DIGITS: 10,
 });
 
+/** A monthly rent above Rs.10 lakh is a typo, not a tenancy. */
+export const MAX_RENT_PAISE = 100000000;
+
 export const ERRORS = Object.freeze({
   REQUIRED: 'REQUIRED',
   NAME_INVALID: 'NAME_INVALID',
@@ -26,6 +29,9 @@ export const ERRORS = Object.freeze({
   NOTE_TOO_LONG: 'NOTE_TOO_LONG',
   CUSTOMER_MISSING: 'CUSTOMER_MISSING',
   TOO_MANY_ITEMS: 'TOO_MANY_ITEMS',
+  RENT_INVALID: 'RENT_INVALID',
+  RENT_AMOUNT_INVALID: 'RENT_AMOUNT_INVALID',
+  RENT_START_INVALID: 'RENT_START_INVALID',
 });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -89,6 +95,50 @@ function checkTimestamp(value, { now = Date.now(), required = true } = {}) {
 }
 
 /** @returns {{ok: boolean, value?: object, errors: string[]}} */
+/**
+ * Rent configuration is optional, but when present it has to be coherent: a
+ * positive monthly amount, a real start date, and an end date that is not before
+ * the start.
+ */
+function validateRent(raw, { now }) {
+  if (raw === undefined || raw === null) return { ok: true, value: null };
+  if (typeof raw !== 'object') return { ok: false, code: ERRORS.RENT_INVALID };
+
+  const active = raw.active !== false;
+  const amount = Number(raw.amount_paise);
+  if (active && (!Number.isFinite(amount) || amount <= 0 || amount > MAX_RENT_PAISE)) {
+    return { ok: false, code: ERRORS.RENT_AMOUNT_INVALID };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw.start_date || ''))) {
+    return { ok: false, code: ERRORS.RENT_START_INVALID };
+  }
+  const startMs = Date.parse(`${raw.start_date}T12:00:00`);
+  if (!Number.isFinite(startMs) || startMs < EARLIEST) {
+    return { ok: false, code: ERRORS.RENT_START_INVALID };
+  }
+  let end = null;
+  if (raw.end_date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(raw.end_date))) {
+      return { ok: false, code: ERRORS.RENT_START_INVALID };
+    }
+    const endMs = Date.parse(`${raw.end_date}T12:00:00`);
+    if (!Number.isFinite(endMs) || endMs < startMs) return { ok: false, code: ERRORS.RENT_START_INVALID };
+    end = String(raw.end_date);
+  }
+
+  return {
+    ok: true,
+    value: {
+      active,
+      amount_paise: Number.isFinite(amount) && amount > 0 ? Math.round(amount) : 0,
+      start_date: String(raw.start_date),
+      end_date: end,
+      mode: raw.mode === 'advance' ? 'advance' : 'arrears',
+      skipped: Array.isArray(raw.skipped) ? raw.skipped.filter((key) => /^\d{4}-\d{2}$/.test(String(key))) : [],
+    },
+  };
+}
+
 export function validateCustomer(raw, { now = Date.now(), requireId = true } = {}) {
   const errors = [];
   const input = raw && typeof raw === 'object' ? raw : {};
@@ -116,6 +166,9 @@ export function validateCustomer(raw, { now = Date.now(), requireId = true } = {
   const created = checkTimestamp(input.created_at, { now, required: false });
   if (!created.ok) errors.push(created.code);
 
+  const rent = validateRent(input.rent, { now });
+  if (!rent.ok) errors.push(rent.code);
+
   if (errors.length) return { ok: false, errors };
   return {
     ok: true,
@@ -126,6 +179,7 @@ export function validateCustomer(raw, { now = Date.now(), requireId = true } = {
       phone_number: phone,
       created_at: created.iso || new Date(now).toISOString(),
       updated_at: new Date(now).toISOString(),
+      rent: rent.value,
     },
   };
 }
@@ -185,6 +239,8 @@ export function validateTransaction(raw, { now = Date.now(), requireId = true } 
       note,
       occurred_at: occurred.iso || created.iso || new Date(now).toISOString(),
       created_at: created.iso || occurred.iso || new Date(now).toISOString(),
+      source: input.source === 'rent' ? 'rent' : 'manual',
+      rent_cycle: /^\d{4}-\d{2}$/.test(String(input.rent_cycle || '')) ? String(input.rent_cycle) : null,
     },
   };
 }

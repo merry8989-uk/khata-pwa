@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS customers (
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL,
   deleted      INTEGER NOT NULL DEFAULT 0,
+  -- Tenancy config as JSON (amount, start_date, mode, end_date, skipped), or NULL.
+  rent_json    TEXT,
   PRIMARY KEY (shop_id, id),
   FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
 );
@@ -34,6 +36,9 @@ CREATE TABLE IF NOT EXISTS transactions (
   occurred_at  TEXT NOT NULL,
   created_at   TEXT NOT NULL,
   deleted      INTEGER NOT NULL DEFAULT 0,
+  -- 'manual' or 'rent'; rent_cycle is the 'YYYY-MM' the charge covers.
+  source       TEXT NOT NULL DEFAULT 'manual',
+  rent_cycle   TEXT,
   PRIMARY KEY (shop_id, id),
   FOREIGN KEY (shop_id) REFERENCES shops(id) ON DELETE CASCADE
 );

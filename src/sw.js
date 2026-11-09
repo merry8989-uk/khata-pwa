@@ -32,6 +32,7 @@ const PRECACHE = [
   './js/sync.js',
   './js/sync-core.js',
   './js/sms.js',
+  './js/rent.js',
   './js/version.js',
   './js/config.js',
   './js/shared/money.js',

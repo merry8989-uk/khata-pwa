@@ -149,22 +149,31 @@ async function applyBatch(env, shopId, accepted) {
   for (const customer of accepted.customers) {
     statements.push(
       env.DB.prepare(
-        `INSERT INTO customers (shop_id, id, name, phone_number, created_at, updated_at, deleted)
-         VALUES (?, ?, ?, ?, ?, ?, 0)
+        `INSERT INTO customers (shop_id, id, name, phone_number, created_at, updated_at, deleted, rent_json)
+         VALUES (?, ?, ?, ?, ?, ?, 0, ?)
          ON CONFLICT(shop_id, id) DO UPDATE SET
            name = excluded.name,
            phone_number = excluded.phone_number,
            updated_at = excluded.updated_at,
+           rent_json = excluded.rent_json,
            deleted = 0`,
-      ).bind(shopId, customer.id, customer.name, customer.phone_number, customer.created_at, customer.updated_at),
+      ).bind(
+        shopId,
+        customer.id,
+        customer.name,
+        customer.phone_number,
+        customer.created_at,
+        customer.updated_at,
+        customer.rent ? JSON.stringify(customer.rent) : null,
+      ),
     );
   }
 
   for (const transaction of accepted.transactions) {
     statements.push(
       env.DB.prepare(
-        `INSERT INTO transactions (shop_id, id, customer_id, type, amount_paise, note, occurred_at, created_at, deleted)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+        `INSERT INTO transactions (shop_id, id, customer_id, type, amount_paise, note, occurred_at, created_at, deleted, source, rent_cycle)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(shop_id, id) DO NOTHING`,
       ).bind(
         shopId,
@@ -175,6 +184,8 @@ async function applyBatch(env, shopId, accepted) {
         transaction.note,
         transaction.occurred_at,
         transaction.created_at,
+        transaction.source === 'rent' ? 'rent' : 'manual',
+        transaction.rent_cycle,
       ),
     );
   }
@@ -431,7 +442,7 @@ async function handleWhoami(env, shopId) {
 
 async function handleCustomers(env, shopId) {
   const { results } = await env.DB.prepare(
-    `SELECT c.id, c.name, c.phone_number, c.created_at,
+    `SELECT c.id, c.name, c.phone_number, c.created_at, c.rent_json,
             COALESCE(SUM(CASE WHEN t.type = 'GIVEN' THEN t.amount_paise ELSE -t.amount_paise END), 0) AS net_paise,
             COUNT(t.id) AS entries
      FROM customers c

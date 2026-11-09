@@ -123,6 +123,8 @@ export async function putCustomer(customer) {
     phone_number: customer.phone_number ?? null,
     created_at: customer.created_at,
     updated_at: customer.updated_at || new Date().toISOString(),
+    // Tenancy configuration, when this customer rents something from the shop.
+    rent: customer.rent || null,
     synced: customer.synced === true,
     sync_flag: customer.synced === true ? 1 : 0,
   };
@@ -199,6 +201,10 @@ export async function putTransaction(transaction) {
     sync_flag: transaction.synced === true ? 1 : 0,
     // Customer SMS state, so an entry is never texted twice and the ledger can
     // show whether the message actually left the phone.
+    // 'rent' marks a charge the rent engine wrote, so the ledger can label it and
+    // a deleted month is not recreated on the next pass.
+    source: transaction.source || 'manual',
+    rent_cycle: transaction.rent_cycle || null,
     sms_status: transaction.sms_status || null,
     sms_at: transaction.sms_at || null,
     sms_error: transaction.sms_error || null,

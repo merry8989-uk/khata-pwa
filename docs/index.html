@@ -134,6 +134,13 @@
                   too, after a confirmation.
                 </li>
                 <li>
+                  <strong>Rent mode.</strong> Mark a customer as a tenant and the monthly rent is added by itself,
+                  on the tenant's own date rather than the 1st: someone who moved in on the 20th is charged for
+                  20th-to-19th, either at the end of each rented month or in advance, your choice. The ledger shows
+                  the rent, the day the tenancy started, the next charge date and how many months have accrued, with
+                  a one-tap "Rent received" that prefills the payment.
+                </li>
+                <li>
                   <strong>Free customer SMS.</strong> In the Android app, every entry texts the customer from your own
                   SIM: "Dear [Name], Rs.[Amount] Gave on [Date]. Net Balance: Rs.[Balance].- KhataApp". No gateway, no
                   top-up, and it works with the internet off. Each entry is texted once, the result is marked on the
@@ -288,6 +295,19 @@
               />
               <figcaption class="mt-2 text-center text-xs text-[color:var(--muted)]">
                 Entry form: direction, amount, note, date
+              </figcaption>
+            </figure>
+            <figure>
+              <img
+                class="shot"
+                src="./assets/screens/rent.png"
+                alt="Rent card on a tenant's ledger: Rs.8,500 per month, tenant since 20 July 2026, month runs on the 20, next due 19 November 2026, with monthly rent entries marked RENT"
+                width="430"
+                height="932"
+                loading="lazy"
+              />
+              <figcaption class="mt-2 text-center text-xs text-[color:var(--muted)]">
+                Rent on the tenant's own date, not the calendar month
               </figcaption>
             </figure>
             <figure>
@@ -480,6 +500,12 @@ npm run build
               running Khata, it must have the SMS permission, and messages are only marked sent when the network
               accepts them. Bulk or promotional SMS needs DLT registration in India - this is for a shop's own
               customers, one message per entry.
+            </li>
+            <li>
+              <strong>Rent is a running charge, not a lease.</strong> Khata adds one rent entry per month from the
+              move-in date and stops when you turn the rent off; it does not handle deposits, electricity splits,
+              rent agreements, notice periods or part-month pro-rating when someone leaves mid-month. Changing the
+              rent affects future months only - the months already charged keep their amount.
             </li>
             <li>
               <strong>No inventory, GST invoicing or billing.</strong> Khata is a credit ledger, not accounting

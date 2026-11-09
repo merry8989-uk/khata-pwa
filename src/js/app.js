@@ -44,6 +44,7 @@ import {
   withRunningBalance,
 } from './shared/ledger.js';
 import { formatReminderText } from './shared/sms.js';
+import { accrueRent, rentSummary } from './rent.js';
 import {
   SMS_TONE,
   hasDeviceSms,
@@ -286,9 +287,16 @@ function customerRow(customer) {
         'span',
         { class: 'min-w-0 flex-1' },
         el('span', { class: 'block truncate text-[0.95rem] font-semibold text-body', text: customer.name }),
-        customer.phone_number
-          ? el('span', { class: 'block truncate text-xs text-sub', text: formatPhoneDisplay(customer.phone_number) })
-          : null,
+        el(
+          'span',
+          { class: 'flex items-center gap-1.5' },
+          customer.phone_number
+            ? el('span', { class: 'truncate text-xs text-sub', text: formatPhoneDisplay(customer.phone_number) })
+            : null,
+          customer.rent?.active
+            ? el('span', { class: 'chip accent-soft text-[0.6rem] font-semibold accent-text', text: t('rent.badge') })
+            : null,
+        ),
       ),
       el(
         'span',
@@ -487,7 +495,7 @@ function ledgerRow(tx, customer) {
       { class: 'min-w-0 flex-1' },
       el('p', { class: 'truncate text-sm font-semibold text-body', text: tx.note || (isGiven ? t('tx.gaveTitle') : t('tx.gotTitle')) }),
       el('p', { class: 'text-xs text-sub', text: formatDateTime(tx.occurred_at || tx.created_at) }),
-      smsChip(tx),
+      el('div', { class: 'flex flex-wrap items-center gap-1' }, rentChip(tx), smsChip(tx)),
     ),
     el(
       'div',
@@ -537,6 +545,80 @@ function renderCustomer(main) {
       }),
     ),
   );
+
+  const rent = customer.rent ? rentSummary({ rent: customer.rent, transactions: entries }) : null;
+  if (rent) {
+    main.append(
+      el(
+        'section',
+        { class: 'card mb-4 p-4', id: 'rent-card' },
+        el(
+          'div',
+          { class: 'flex items-start justify-between gap-3' },
+          el(
+            'div',
+            { class: 'min-w-0' },
+            el('p', { class: 'text-[0.7rem] font-bold uppercase tracking-wide accent-text', text: t('rent.title') }),
+            el('p', {
+              class: 'mt-0.5 text-lg font-extrabold tabular text-body',
+              text: t('rent.perMonth', { amount: money(rent.amount_paise) }),
+            }),
+            el('p', {
+              class: 'mt-0.5 text-xs text-sub',
+              text: t('rent.cycleLine', { start: formatDate(rent.start_date), day: rent.cycle_day }),
+            }),
+          ),
+          el('span', {
+            class: `chip shrink-0 ${rent.active ? 'bg-paid-100 text-paid-700' : 'surface-muted text-sub'}`,
+            text: rent.active ? t('rent.active') : t('rent.stopped'),
+          }),
+        ),
+        el(
+          'div',
+          { class: 'mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-sub' },
+          rent.next_due
+            ? el('span', { id: 'rent-next-due', text: t('rent.nextDue', { date: formatDate(rent.next_due) }) })
+            : el('span', { text: t('rent.noNextDue') }),
+          el('span', { text: t('rent.charged', { count: rent.charged }) }),
+          el('span', {
+            text: rent.mode === 'advance' ? t('rent.modeAdvance') : t('rent.modeArrears'),
+          }),
+        ),
+        el(
+          'div',
+          { class: 'mt-3 grid grid-cols-2 gap-2' },
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'btn bg-paid-600 text-white hover:bg-paid-700',
+              id: 'rent-payment',
+              onclick: () =>
+                openTransactionSheet({
+                  customer,
+                  type: TYPES.GOT,
+                  amountPaise: rent.amount_paise,
+                  note: t('rent.paymentNote'),
+                }),
+            },
+            icon('arrowDown', 'h-4 w-4'),
+            el('span', { text: t('rent.addPayment') }),
+          ),
+          el(
+            'button',
+            {
+              type: 'button',
+              class: 'btn-ghost',
+              id: 'rent-edit',
+              onclick: () => openCustomerSheet({ customer }),
+            },
+            icon('edit', 'h-4 w-4'),
+            el('span', { text: t('rent.edit') }),
+          ),
+        ),
+      ),
+    );
+  }
 
   main.append(
     el(
@@ -1345,6 +1427,122 @@ function openCustomerSheet({ customer = null } = {}) {
   });
   const errorBox = el('p', { class: 'min-h-[1rem] text-xs font-medium text-due-600', role: 'alert' });
 
+  /* --- rent --- */
+  const existingRent = customer?.rent || null;
+  let rentOn = Boolean(existingRent);
+  let rentMode = existingRent?.mode === 'advance' ? 'advance' : 'arrears';
+
+  const rentAmountInput = el('input', {
+    id: 'rent-amount',
+    class: 'field tabular',
+    inputmode: 'decimal',
+    value: existingRent?.amount_paise ? paiseToInput(existingRent.amount_paise) : '',
+    placeholder: '5000',
+    'aria-label': t('rent.amount'),
+  });
+  const rentStartInput = el('input', {
+    id: 'rent-start',
+    class: 'field',
+    type: 'date',
+    value: existingRent?.start_date || toDateInputValue(new Date().toISOString()),
+    'aria-label': t('rent.startDate'),
+  });
+  const modeGroup = el('div', {
+    class: 'inline-flex rounded-xl border bordered surface p-0.5',
+    role: 'radiogroup',
+    'aria-label': t('rent.mode'),
+  });
+  function paintMode() {
+    clear(modeGroup);
+    for (const option of [
+      { id: 'arrears', label: t('rent.arrears') },
+      { id: 'advance', label: t('rent.advance') },
+    ]) {
+      const selected = option.id === rentMode;
+      modeGroup.append(
+        el(
+          'button',
+          {
+            type: 'button',
+            role: 'radio',
+            'aria-checked': String(selected),
+            class: `rounded-[0.6rem] px-2.5 py-1.5 text-xs font-semibold transition-colors ${
+              selected ? 'accent-bg text-white' : 'text-sub hover:text-body'
+            }`,
+            onclick: () => {
+              rentMode = option.id;
+              paintMode();
+            },
+          },
+          option.label,
+        ),
+      );
+    }
+  }
+  paintMode();
+
+  const rentFields = el(
+    'div',
+    { class: 'mt-3 space-y-3', id: 'rent-fields' },
+    el('div', {}, el('label', { class: 'label', for: 'rent-amount', text: t('rent.amount') }), rentAmountInput),
+    el('div', {}, el('label', { class: 'label', for: 'rent-start', text: t('rent.startDate') }), rentStartInput),
+    el(
+      'div',
+      {},
+      el('p', { class: 'label', text: t('rent.mode') }),
+      modeGroup,
+      el('p', { class: 'mt-1 text-[0.7rem] leading-snug text-sub', text: t('rent.modeHint') }),
+    ),
+  );
+
+  const rentSwitch = el(
+    'button',
+    {
+      type: 'button',
+      role: 'switch',
+      id: 'rent-toggle',
+      'aria-checked': String(rentOn),
+      'aria-label': t('rent.toggle'),
+      class: `relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+        rentOn ? 'accent-bg' : 'bg-ink-300'
+      }`,
+      onclick: () => {
+        rentOn = !rentOn;
+        rentSwitch.setAttribute('aria-checked', String(rentOn));
+        rentSwitch.className = `relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+          rentOn ? 'accent-bg' : 'bg-ink-300'
+        }`;
+        rentSwitch.firstElementChild.style.transform = rentOn ? 'translateX(1.25rem)' : 'translateX(0.125rem)';
+        rentFields.classList.toggle('hidden', !rentOn);
+      },
+    },
+    (() => {
+      const knob = el('span', {
+        class: 'pointer-events-none block h-5 w-5 rounded-full bg-white shadow transition-transform',
+      });
+      knob.style.transform = rentOn ? 'translateX(1.25rem)' : 'translateX(0.125rem)';
+      return knob;
+    })(),
+  );
+  rentFields.classList.toggle('hidden', !rentOn);
+
+  const rentBlock = el(
+    'div',
+    { class: 'rounded-xl border bordered p-3' },
+    el(
+      'div',
+      { class: 'flex items-start justify-between gap-3' },
+      el(
+        'div',
+        { class: 'min-w-0' },
+        el('p', { class: 'text-sm font-semibold text-body', text: t('rent.toggle') }),
+        el('p', { class: 'mt-0.5 text-[0.7rem] leading-snug text-sub', text: t('rent.toggleHint') }),
+      ),
+      rentSwitch,
+    ),
+    rentFields,
+  );
+
   const sheet = openSheet({
     title: isEdit ? t('customer.editTitle') : t('customer.addTitle'),
     content: [
@@ -1355,6 +1553,7 @@ function openCustomerSheet({ customer = null } = {}) {
         el('label', { class: 'label', for: 'customer-phone', text: `${t('customer.phone')} (${t('common.optional')})` }),
         phoneInput,
       ),
+      rentBlock,
       errorBox,
     ],
     footer: [
@@ -1367,18 +1566,39 @@ function openCustomerSheet({ customer = null } = {}) {
           id: 'customer-save',
           onclick: async () => {
             errorBox.textContent = '';
+            rentAmountInput.classList.remove('field-invalid');
+            rentStartInput.classList.remove('field-invalid');
+
+            const parsedRent = parseAmountToPaise(rentAmountInput.value);
+            let rent = null;
+            if (rentOn || existingRent) {
+              rent = {
+                active: rentOn,
+                amount_paise: parsedRent.ok ? parsedRent.paise : 0,
+                start_date: rentStartInput.value,
+                mode: rentMode,
+                end_date: existingRent?.end_date || null,
+                skipped: existingRent?.skipped || [],
+              };
+            }
+
             const result = validateCustomer(
               {
                 id: customer?.id || newId(),
                 name: nameInput.value,
                 phone_number: phoneInput.value,
                 created_at: customer?.created_at || new Date().toISOString(),
+                rent,
               },
               { now: Date.now() },
             );
             if (!result.ok) {
-              errorBox.textContent = errorText(result.errors[0]);
-              (result.errors[0] === 'NAME_INVALID' ? nameInput : phoneInput).classList.add('field-invalid');
+              const first = result.errors[0];
+              errorBox.textContent = errorText(first);
+              if (first === 'NAME_INVALID') nameInput.classList.add('field-invalid');
+              else if (first === 'PHONE_INVALID') phoneInput.classList.add('field-invalid');
+              else if (first === 'RENT_AMOUNT_INVALID') rentAmountInput.classList.add('field-invalid');
+              else if (first === 'RENT_START_INVALID') rentStartInput.classList.add('field-invalid');
               return;
             }
             nameInput.classList.remove('field-invalid');
@@ -1394,6 +1614,7 @@ function openCustomerSheet({ customer = null } = {}) {
             await reloadData();
             sheet.close();
             toast(t('toast.saved'), { tone: 'success' });
+            if (rent?.active) await runRentAccrual({ force: true });
             render();
             engine?.syncNow('customer');
           },
@@ -1404,7 +1625,7 @@ function openCustomerSheet({ customer = null } = {}) {
   });
 }
 
-function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null }) {
+function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null, amountPaise = null, note = '' }) {
   let currentType = transaction ? transaction.type : type;
 
   const amountInput = el('input', {
@@ -1413,14 +1634,14 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
     inputmode: 'decimal',
     type: 'text',
     placeholder: '0',
-    value: transaction ? paiseToInput(transaction.amount_paise) : '',
+    value: transaction ? paiseToInput(transaction.amount_paise) : amountPaise ? paiseToInput(amountPaise) : '',
     autocomplete: 'off',
     'data-autofocus': '',
   });
   const noteInput = el('input', {
     id: 'tx-note',
     class: 'field',
-    value: transaction?.note || '',
+    value: transaction?.note || note || '',
     placeholder: t('tx.notePlaceholder'),
     maxlength: LIMITS.NOTE_MAX,
   });
@@ -1507,6 +1728,21 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
                   if (!ok) return;
                 }
                 await db.deleteTransaction(transaction.id);
+                if (transaction.source === 'rent' && transaction.rent_cycle && customer.rent) {
+                  // Remember the month, or the next accrual pass would put the
+                  // charge straight back.
+                  const skipped = new Set(Array.isArray(customer.rent.skipped) ? customer.rent.skipped : []);
+                  skipped.add(transaction.rent_cycle);
+                  await db.putCustomer({
+                    ...customer,
+                    rent: { ...customer.rent, skipped: [...skipped] },
+                    synced: false,
+                  });
+                  logger.info('rent', 'Rent charge suppressed', {
+                    customerId: customer.id,
+                    cycle: transaction.rent_cycle,
+                  });
+                }
                 logger.info('transaction', 'Entry deleted', { transactionId: transaction.id });
                 await reloadData();
                 sheet.close();
@@ -1598,6 +1834,34 @@ function openTransactionSheet({ customer, type = TYPES.GIVEN, transaction = null
   });
 }
 
+/* -------------------------------------------------------------------- rent */
+
+let lastRentPass = 0;
+
+/**
+ * Adds any rent months that have come due, then re-reads the ledger if something
+ * changed. Runs at boot, when the app comes back to the foreground, and after a
+ * tenancy is edited - never on a timer, because a shopkeeper's phone sleeps.
+ */
+async function runRentAccrual({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && now - lastRentPass < 60 * 60 * 1000) return 0;
+  lastRentPass = now;
+  try {
+    const result = await accrueRent({ db, now: new Date(now), logger });
+    if (result.created > 0) {
+      await reloadData();
+      logger.info('rent', 'Rent accrual applied', result);
+      if (state.route.name === 'dashboard') render();
+      else render();
+    }
+    return result.created;
+  } catch (error) {
+    logger.error('rent', 'Rent accrual failed', { message: error?.message, stack: error?.stack });
+    return 0;
+  }
+}
+
 /* --------------------------------------------------------------------- sms */
 
 /**
@@ -1646,9 +1910,20 @@ async function maybeSendEntrySms(customer, transaction) {
   return result;
 }
 
+function rentChip(transaction) {
+  if (transaction.source !== 'rent') return null;
+  return el('span', {
+    class: 'chip mt-1 accent-soft text-[0.6rem] font-semibold accent-text',
+    title: transaction.rent_cycle ? `Rent ${transaction.rent_cycle}` : 'Rent',
+    text: t('rent.badge'),
+  });
+}
+
 function smsChip(transaction) {
   if (!transaction.sms_status) return null;
   const status = transaction.sms_status;
+  // 'skipped' is a deliberate choice (auto rent charges), not a failure.
+  if (status === 'skipped') return null;
   if (status === 'sent') {
     return el('span', {
       class: 'chip mt-1 bg-paid-100 text-[0.6rem] font-semibold text-paid-700',
@@ -1855,6 +2130,7 @@ async function boot() {
     setLogging(state.settings.logging);
 
     await db.openDb();
+    await runRentAccrual({ force: true });
     logger.info('app', 'Boot', { version: APP_VERSION, language: state.settings.language });
     await reloadData();
   } catch (error) {
@@ -1926,6 +2202,9 @@ async function boot() {
 // Attached before boot() awaits anything: navigation must work from the first
 // painted frame, not only after settings, IndexedDB and the sync engine are ready.
 window.addEventListener('hashchange', onRouteChange);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') runRentAccrual();
+});
 window.addEventListener('online', () => {
   state.sync.status = STATUS.ONLINE;
   renderHeader();
